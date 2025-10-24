@@ -1,6 +1,19 @@
 import requests
 from typing import Dict, Optional
 from urllib.parse import urlencode, quote
+from enum import Enum
+
+
+class TransportMode(Enum):
+    DRIVING = "car"
+    TAXI = "car"
+    PUBLIC_TRANSIT = "bus"
+    CARPOOLING = "car"
+    CYCLING = "bike"
+    WALKING = "walk"
+    TRAIN = "car"
+    AIRPLANE = "car"
+    MOTORCYCLE = "car"
 
 
 class AmapLocationService:
@@ -137,7 +150,8 @@ class AmapLocationService:
 
 def build_amap_direction_url_from_names(api_key: str, from_name: str, to_name: str, 
                                        from_city: str = None, to_city: str = None,
-                                       route_type: str = 'car', policy: int = 1) -> Optional[str]:
+                                       route_type: str = 'car', policy: int = 1,
+                                       transport_mode: str = None) -> Optional[str]:
     """
     通过起点终点名称构建高德地图路线规划URL
     
@@ -147,13 +161,21 @@ def build_amap_direction_url_from_names(api_key: str, from_name: str, to_name: s
         to_name: 终点名称
         from_city: 起点城市（可选）
         to_city: 终点城市（可选）
-        route_type: 路线类型
+        route_type: 路线类型（保留兼容性）
         policy: 路线策略
+        transport_mode: 交通方式（driving/taxi/public_transit/carpooling/cycling/walking/train/airplane/motorcycle）
         
     Returns:
         完整的高德地图路线规划URL
     """
     service = AmapLocationService(api_key)
+    
+    if transport_mode:
+        try:
+            mode_enum = TransportMode[transport_mode.upper()]
+            route_type = mode_enum.value
+        except KeyError:
+            route_type = TransportMode.DRIVING.value
     
     # 获取起点信息
     from_info = service.get_location_info(from_name, from_city)
