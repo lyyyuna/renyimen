@@ -5,6 +5,7 @@
 ## 功能特性
 
 - 🗣️ **自然语言输入** - 支持"从A到B"、"去某地"等自然表达
+- 🎤 **语音识别** - 支持语音输入导航指令，唤醒词"hi,任意门"
 - 🤖 **AI智能解析** - 基于 Claude CLI + MCP 服务解析导航意图
 - 🗺️ **高德地图集成** - 自动生成并打开高德地图导航链接
 - 💻 **友好UI界面** - PySide6 图形界面，支持异步处理
@@ -87,6 +88,8 @@ python main.py
 
 ## 使用方法
 
+### 文字输入方式
+
 1. 启动应用后，在输入框中输入导航需求
 2. 支持的格式：
    - "从上海新天地到中友嘉园"
@@ -96,11 +99,22 @@ python main.py
 3. 点击确定或按回车键
 4. 系统会自动解析并打开浏览器显示导航路线
 
+### 语音输入方式 🎤
+
+1. 点击"🎤 语音"按钮
+2. 对着麦克风说出导航指令，支持的格式：
+   - "hi,任意门,我想步行去崇明岛"
+   - "hi,任意门,我想驾车从张江人工智能岛到虹桥火车站"
+   - "hi,任意门,我想打车去浦东机场"
+3. 系统会自动识别语音并解析导航需求
+4. 识别成功后自动处理导航请求
+
 ## 技术架构
 
 ### 核心组件
 
 - `main.py` - PySide6 图形界面主程序
+- `voice_recognition_service.py` - 语音识别服务
 - `mcp_navigation_server.py` - MCP 导航服务器
 - `amap_service.py` - 高德地图 API 封装
 - `navigation_service.py` - 导航服务逻辑
@@ -120,14 +134,15 @@ python main.py
 
 ```
 renyimen/
-├── main.py                    # 主应用程序
-├── mcp_navigation_server.py   # MCP 服务器
-├── amap_service.py           # 高德地图 API
-├── navigation_service.py     # 导航服务
-├── claude_desktop_config.json # MCP 配置
-├── pyproject.toml            # 项目配置
-├── uv.lock                   # 依赖锁定文件
-└── README.md                 # 说明文档
+├── main.py                       # 主应用程序
+├── voice_recognition_service.py  # 语音识别服务
+├── mcp_navigation_server.py      # MCP 服务器
+├── amap_service.py               # 高德地图 API
+├── navigation_service.py         # 导航服务
+├── claude_desktop_config.json    # MCP 配置
+├── pyproject.toml                # 项目配置
+├── uv.lock                       # 依赖锁定文件
+└── README.md                     # 说明文档
 ```
 
 ### 添加新功能
