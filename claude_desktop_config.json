@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "navigation": {
+      "command": "python",
+      "args": ["./mcp_navigation_server.py"],
+      "env": {}
+    }
+  }
+}
