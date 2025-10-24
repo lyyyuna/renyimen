@@ -10,13 +10,14 @@ import mcp.types as types
 from mcp.server import NotificationOptions, Server
 import mcp.server.stdio
 from navigation_service import NavigationService
+import os
 
 
 # 创建MCP服务器实例
 server = Server("navigation-server")
 
-# 创建导航服务实例
-nav_service = NavigationService()
+# 创建导航服务实例，支持环境变量选择地图类型
+nav_service = NavigationService(provider=os.getenv("MAP_PROVIDER", "amap"))
 
 
 @server.list_tools()
@@ -27,7 +28,7 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="navigate",
-            description="根据起点和终点打开高德地图导航链接，支持多种交通方式",
+            description="根据起点和终点打开地图导航链接（高德/百度），支持多种交通方式",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -51,6 +52,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "交通方式：driving(驾车)/public_transit(公交)/walking(步行)，默认为driving",
                         "enum": ["driving", "public_transit", "walking"]
+                    },
+                    "provider": {
+                        "type": "string",
+                        "description": "地图类型：amap(高德) 或 baidu(百度)。不填则用环境变量MAP_PROVIDER",
+                        "enum": ["amap", "baidu"]
                     }
                 },
                 "required": ["end_point"],
@@ -77,6 +83,7 @@ async def handle_call_tool(
     start_city = arguments.get("start_city")
     end_city = arguments.get("end_city")
     transport_mode = arguments.get("transport_mode")
+    provider = arguments.get("provider")
 
     if not end_point:
         raise ValueError("end_point is required")
@@ -85,6 +92,10 @@ async def handle_call_tool(
     if not start_point or start_point.strip() in ["", "当前位置", "我的位置", "这里"]:
         start_point = "当前位置"
         start_city = None  # IP定位时不需要指定城市
+
+    # 如果传入provider，动态切换导航服务地图类型
+    if provider:
+        nav_service.provider = provider
 
     # 调用导航服务
     success = nav_service.navigate(start_point, end_point, start_city, end_city, transport_mode)
