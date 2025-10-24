@@ -6,14 +6,8 @@ from enum import Enum
 
 class TransportMode(Enum):
     DRIVING = "car"
-    TAXI = "car"
     PUBLIC_TRANSIT = "bus"
-    CARPOOLING = "car"
-    CYCLING = "bike"
     WALKING = "walk"
-    TRAIN = "car"
-    AIRPLANE = "car"
-    MOTORCYCLE = "car"
 
 
 class AmapLocationService:
@@ -163,7 +157,7 @@ def build_amap_direction_url_from_names(api_key: str, from_name: str, to_name: s
         to_city: 终点城市（可选）
         route_type: 路线类型（保留兼容性）
         policy: 路线策略
-        transport_mode: 交通方式（driving/taxi/public_transit/carpooling/cycling/walking/train/airplane/motorcycle）
+        transport_mode: 交通方式（driving/public_transit/walking）
         
     Returns:
         完整的高德地图路线规划URL

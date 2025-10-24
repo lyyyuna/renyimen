@@ -43,14 +43,8 @@ class NavigationWorker(QThread):
 
 支持的交通方式识别（从用户输入中提取）：
 - 驾车/开车 → driving
-- 打车 → taxi
 - 公共交通/公交/地铁 → public_transit
-- 顺风车 → carpooling
-- 骑行/骑车/自行车 → cycling
 - 步行/走路 → walking
-- 火车/高铁 → train
-- 飞机 → airplane
-- 摩托车 → motorcycle
 
 如果无法识别为导航请求，请简单回复"这不是导航请求"。
 如果是导航请求，请直接调用navigate工具，不要只是回复文字。"""

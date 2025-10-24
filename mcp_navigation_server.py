@@ -49,8 +49,8 @@ async def handle_list_tools() -> list[types.Tool]:
                     },
                     "transport_mode": {
                         "type": "string",
-                        "description": "交通方式：driving(驾车)/taxi(打车)/public_transit(公共交通)/carpooling(顺风车)/cycling(骑行)/walking(步行)/train(火车)/airplane(飞机)/motorcycle(摩托车)，默认为driving",
-                        "enum": ["driving", "taxi", "public_transit", "carpooling", "cycling", "walking", "train", "airplane", "motorcycle"]
+                        "description": "交通方式：driving(驾车)/public_transit(公交)/walking(步行)，默认为driving",
+                        "enum": ["driving", "public_transit", "walking"]
                     }
                 },
                 "required": ["start_point", "end_point"],
