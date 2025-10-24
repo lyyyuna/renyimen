@@ -5,6 +5,7 @@
 ## 功能特性
 
 - 🗣️ **自然语言输入** - 支持"从A到B"、"去某地"等自然表达
+- 🎤 **语音识别** - 支持语音输入导航指令，唤醒词"hi，任意门"
 - 🤖 **AI智能解析** - 基于 Claude CLI + MCP 服务解析导航意图
 - 🗺️ **高德地图集成** - 自动生成并打开高德地图导航链接
 - 💻 **友好UI界面** - PySide6 图形界面，支持异步处理
@@ -87,6 +88,8 @@ python main.py
 
 ## 使用方法
 
+### 文字输入方式
+
 1. 启动应用后，在输入框中输入导航需求
 2. 支持的格式：
    - "从上海新天地到中友嘉园"
@@ -96,11 +99,21 @@ python main.py
 3. 点击确定或按回车键
 4. 系统会自动解析并打开浏览器显示导航路线
 
+### 语音输入方式
+
+1. 点击"🎤 语音"按钮启动语音识别
+2. 说出导航指令，支持的格式：
+   - "hi，任意门，我想步行去崇明岛"
+   - "hi，任意门，我想驾车从张江人工智能岛到虹桥火车站"
+   - "任意门，我要去天安门"
+3. 语音识别完成后会自动填入输入框并开始导航
+
 ## 技术架构
 
 ### 核心组件
 
 - `main.py` - PySide6 图形界面主程序
+- `voice_recognition_service.py` - 语音识别服务
 - `mcp_navigation_server.py` - MCP 导航服务器
 - `amap_service.py` - 高德地图 API 封装
 - `navigation_service.py` - 导航服务逻辑
@@ -120,14 +133,15 @@ python main.py
 
 ```
 renyimen/
-├── main.py                    # 主应用程序
-├── mcp_navigation_server.py   # MCP 服务器
-├── amap_service.py           # 高德地图 API
-├── navigation_service.py     # 导航服务
-├── claude_desktop_config.json # MCP 配置
-├── pyproject.toml            # 项目配置
-├── uv.lock                   # 依赖锁定文件
-└── README.md                 # 说明文档
+├── main.py                      # 主应用程序
+├── voice_recognition_service.py # 语音识别服务
+├── mcp_navigation_server.py     # MCP 服务器
+├── amap_service.py             # 高德地图 API
+├── navigation_service.py       # 导航服务
+├── claude_desktop_config.json   # MCP 配置
+├── pyproject.toml              # 项目配置
+├── uv.lock                     # 依赖锁定文件
+└── README.md                   # 说明文档
 ```
 
 ### 添加新功能
@@ -153,6 +167,16 @@ A: 请检查 API Key 是否正确，以及是否有调用配额。
 
 **Q: UI 界面无响应？**
 A: 应用使用异步处理，如果卡死请检查 Claude CLI 是否正常安装。
+
+**Q: 语音识别无法使用？**
+A: 请确保已安装 PyAudio（`uv sync` 会自动安装）。Linux 用户可能需要先安装 `portaudio19-dev`：
+```bash
+sudo apt-get install portaudio19-dev  # Ubuntu/Debian
+sudo yum install portaudio-devel      # CentOS/RHEL
+```
+
+**Q: 语音识别不准确？**
+A: 语音识别使用 Google 语音识别服务，需要联网。请在安静环境下清晰地说出指令，并确保说出唤醒词"hi，任意门"或"任意门"。
 
 ## 许可证
 

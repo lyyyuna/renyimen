@@ -2,9 +2,10 @@ import sys
 import subprocess
 import json
 import os
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
+from voice_recognition_service import VoiceRecognitionService
 
 
 class NavigationWorker(QThread):
@@ -70,25 +71,61 @@ class NavigationWorker(QThread):
             self.error.emit(f"❌ 调用Claude CLI失败: {str(e)}")
 
 
+class VoiceWorker(QThread):
+    finished = Signal(str)
+    error = Signal(str)
+    recognized = Signal(str)
+    
+    def __init__(self):
+        super().__init__()
+        self.voice_service = VoiceRecognitionService()
+        self.is_running = True
+    
+    def run(self):
+        try:
+            result = self.voice_service.listen_for_navigation(timeout=10)
+            if result:
+                text = f"{result['raw_text']}"
+                self.recognized.emit(result['raw_text'])
+                self.finished.emit(f"✅ 识别成功: {result['raw_text']}")
+            else:
+                self.error.emit("未识别到有效的导航指令")
+        except Exception as e:
+            self.error.emit(f"语音识别失败: {str(e)}")
+    
+    def stop(self):
+        self.is_running = False
+
+
 class InputApp(QWidget):
     def __init__(self):
         super().__init__()
         self.nav_service = NavigationService()
+        self.voice_worker = None
         self.init_ui()
     
     def init_ui(self):
-        self.setWindowTitle("文字输入框")
-        self.setFixedSize(400, 300)
+        self.setWindowTitle("任意门智能导航")
+        self.setFixedSize(450, 350)
         
         layout = QVBoxLayout()
         
-        self.label = QLabel("请输入文字:")
+        self.label = QLabel("请输入文字或使用语音:")
         layout.addWidget(self.label)
+        
+        input_layout = QHBoxLayout()
         
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("在这里输入文字...")
         self.input_field.returnPressed.connect(self.on_enter_pressed)
-        layout.addWidget(self.input_field)
+        input_layout.addWidget(self.input_field)
+        
+        self.voice_button = QPushButton("🎤 语音")
+        self.voice_button.clicked.connect(self.on_voice_input)
+        self.voice_button.setFixedWidth(80)
+        input_layout.addWidget(self.voice_button)
+        
+        layout.addLayout(input_layout)
         
         self.submit_button = QPushButton("确定")
         self.submit_button.clicked.connect(self.on_submit)
@@ -115,6 +152,40 @@ class InputApp(QWidget):
     
     def on_enter_pressed(self):
         self.on_submit()
+    
+    def on_voice_input(self):
+        self.voice_button.setEnabled(False)
+        self.voice_button.setText("🎤 监听中...")
+        self.input_field.setEnabled(False)
+        self.submit_button.setEnabled(False)
+        
+        self.output_text.append("🎤 请说话... (例如: hi,任意门,我想步行去崇明岛)")
+        
+        self.voice_worker = VoiceWorker()
+        self.voice_worker.recognized.connect(self.on_voice_recognized)
+        self.voice_worker.finished.connect(self.on_voice_finished)
+        self.voice_worker.error.connect(self.on_voice_error)
+        self.voice_worker.start()
+    
+    def on_voice_recognized(self, text):
+        self.input_field.setText(text)
+    
+    def on_voice_finished(self, message):
+        self.output_text.append(message)
+        self.voice_button.setEnabled(True)
+        self.voice_button.setText("🎤 语音")
+        self.input_field.setEnabled(True)
+        self.submit_button.setEnabled(True)
+        
+        if self.input_field.text():
+            self.on_submit()
+    
+    def on_voice_error(self, error):
+        self.output_text.append(f"❌ {error}")
+        self.voice_button.setEnabled(True)
+        self.voice_button.setText("🎤 语音")
+        self.input_field.setEnabled(True)
+        self.submit_button.setEnabled(True)
     
     def on_submit(self):
         text = self.input_field.text()
