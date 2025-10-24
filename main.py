@@ -2,9 +2,30 @@ import sys
 import subprocess
 import json
 import os
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
+from voice_recognition_service import VoiceRecognitionService
+
+
+class VoiceRecognitionWorker(QThread):
+    """后台处理语音识别的工作线程"""
+    finished = Signal(str)
+    error = Signal(str)
+    
+    def __init__(self, voice_service):
+        super().__init__()
+        self.voice_service = voice_service
+    
+    def run(self):
+        try:
+            text = self.voice_service.listen_and_recognize(timeout=5, phrase_time_limit=10)
+            if text:
+                self.finished.emit(text)
+            else:
+                self.error.emit("未识别到语音或识别失败")
+        except Exception as e:
+            self.error.emit(f"语音识别出错: {str(e)}")
 
 
 class NavigationWorker(QThread):
@@ -83,21 +104,34 @@ class InputApp(QWidget):
     def __init__(self):
         super().__init__()
         self.nav_service = NavigationService()
+        self.voice_service = VoiceRecognitionService()
         self.init_ui()
     
     def init_ui(self):
         self.setWindowTitle("任意门智能导航")
-        self.setFixedSize(500, 400)
+        self.setFixedSize(550, 450)
         
         layout = QVBoxLayout()
         
         self.label = QLabel("请输入导航需求:")
         layout.addWidget(self.label)
         
+        input_layout = QHBoxLayout()
         self.input_field = QLineEdit()
         self.input_field.setPlaceholderText("例如：驾车从张江人工智能岛到虹桥火车站")
         self.input_field.returnPressed.connect(self.on_enter_pressed)
-        layout.addWidget(self.input_field)
+        input_layout.addWidget(self.input_field)
+        
+        self.voice_button = QPushButton("🎤 语音")
+        self.voice_button.setFixedWidth(80)
+        self.voice_button.clicked.connect(self.on_voice_input)
+        input_layout.addWidget(self.voice_button)
+        
+        layout.addLayout(input_layout)
+        
+        self.voice_hint_label = QLabel("提示: 点击语音按钮后说\"hi,任意门,我想驾车从A到B\"")
+        self.voice_hint_label.setStyleSheet("color: gray; font-size: 10px;")
+        layout.addWidget(self.voice_hint_label)
         
         self.submit_button = QPushButton("确定")
         self.submit_button.clicked.connect(self.on_submit)
@@ -125,6 +159,46 @@ class InputApp(QWidget):
     def on_enter_pressed(self):
         self.on_submit()
     
+    def on_voice_input(self):
+        """处理语音输入"""
+        self.output_text.append("🎤 请说话...")
+        self.voice_button.setEnabled(False)
+        self.voice_button.setText("识别中...")
+        self.input_field.setEnabled(False)
+        self.submit_button.setEnabled(False)
+        
+        self.voice_worker = VoiceRecognitionWorker(self.voice_service)
+        self.voice_worker.finished.connect(self.on_voice_recognition_finished)
+        self.voice_worker.error.connect(self.on_voice_recognition_error)
+        self.voice_worker.start()
+    
+    def on_voice_recognition_finished(self, text):
+        """语音识别完成"""
+        self.output_text.append(f"🎤 识别到: {text}")
+        
+        result = self.voice_service.parse_navigation_command(text)
+        
+        if result['valid']:
+            command_text = text
+            self.input_field.setText(command_text)
+            self.output_text.append("✅ 检测到导航指令,正在处理...")
+            self.start_navigation_process(command_text)
+        else:
+            self.output_text.append("❌ 未检测到有效的导航指令")
+            self.output_text.append("💡 请使用格式: hi,任意门,我想驾车从A到B")
+            self.voice_button.setEnabled(True)
+            self.voice_button.setText("🎤 语音")
+            self.input_field.setEnabled(True)
+            self.submit_button.setEnabled(True)
+    
+    def on_voice_recognition_error(self, error):
+        """语音识别出错"""
+        self.output_text.append(f"❌ {error}")
+        self.voice_button.setEnabled(True)
+        self.voice_button.setText("🎤 语音")
+        self.input_field.setEnabled(True)
+        self.submit_button.setEnabled(True)
+    
     def on_submit(self):
         text = self.input_field.text()
         if text:
@@ -138,6 +212,7 @@ class InputApp(QWidget):
         self.input_field.setEnabled(False)
         self.submit_button.setEnabled(False)
         self.submit_button.setText("处理中...")
+        self.voice_button.setEnabled(False)
         
         # 显示进度条并开始动画
         self.progress_bar.setVisible(True)
@@ -181,6 +256,8 @@ class InputApp(QWidget):
         self.input_field.setEnabled(True)
         self.submit_button.setEnabled(True)
         self.submit_button.setText("确定")
+        self.voice_button.setEnabled(True)
+        self.voice_button.setText("🎤 语音")
     
     
     
