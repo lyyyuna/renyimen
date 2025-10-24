@@ -126,7 +126,7 @@ export default {
         };
       }
     },
-    toggleVoiceInput() {
+    async toggleVoiceInput() {
       if (!this.recognition) {
         this.error = '您的浏览器不支持语音识别';
         return;
@@ -136,8 +136,22 @@ export default {
         this.recognition.stop();
       } else {
         this.error = null;
-        this.isRecording = true;
-        this.recognition.start();
+        
+        try {
+          const permission = await window.electronAPI.requestMicrophonePermission();
+          console.log('🎤 麦克风权限结果:', permission);
+          
+          if (!permission.granted) {
+            this.error = '需要麦克风权限才能使用语音输入功能';
+            return;
+          }
+          
+          this.isRecording = true;
+          this.recognition.start();
+        } catch (err) {
+          console.error('请求麦克风权限失败:', err);
+          this.error = '无法获取麦克风权限';
+        }
       }
     },
     async handleSubmit() {

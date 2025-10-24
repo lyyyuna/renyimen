@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron';
 import { spawn } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,6 +16,15 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
+    }
+  });
+
+  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'microphone', 'audioCapture'];
+    if (allowedPermissions.includes(permission)) {
+      callback(true);
+    } else {
+      callback(false);
     }
   });
 
@@ -40,6 +49,41 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+ipcMain.handle('request-microphone-permission', async () => {
+  try {
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('microphone');
+      console.log('🎤 [microphone] macOS 麦克风权限状态:', status);
+      
+      if (status === 'not-determined') {
+        const granted = await systemPreferences.askForMediaAccess('microphone');
+        console.log('🎤 [microphone] 用户授权结果:', granted);
+        return { granted, status: granted ? 'granted' : 'denied' };
+      }
+      
+      return { granted: status === 'granted', status };
+    }
+    
+    return { granted: true, status: 'granted' };
+  } catch (error) {
+    console.error('❌ [microphone] 请求麦克风权限失败:', error);
+    return { granted: false, status: 'error', error: error.message };
+  }
+});
+
+ipcMain.handle('check-microphone-permission', async () => {
+  try {
+    if (process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('microphone');
+      return { status, granted: status === 'granted' };
+    }
+    return { status: 'granted', granted: true };
+  } catch (error) {
+    console.error('❌ [microphone] 检查麦克风权限失败:', error);
+    return { status: 'error', granted: false, error: error.message };
   }
 });
 
