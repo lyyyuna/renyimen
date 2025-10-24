@@ -33,7 +33,7 @@ async def handle_list_tools() -> list[types.Tool]:
                 "properties": {
                     "start_point": {
                         "type": "string",
-                        "description": "起点名称"
+                        "description": "起点名称，如果为空或'当前位置'则自动获取当前IP定位"
                     },
                     "end_point": {
                         "type": "string", 
@@ -53,7 +53,7 @@ async def handle_list_tools() -> list[types.Tool]:
                         "enum": ["driving", "public_transit", "walking"]
                     }
                 },
-                "required": ["start_point", "end_point"],
+                "required": ["end_point"],
             },
         )
     ]
@@ -72,14 +72,19 @@ async def handle_call_tool(
     if not arguments:
         raise ValueError("Missing arguments")
 
-    start_point = arguments.get("start_point")
+    start_point = arguments.get("start_point", "")
     end_point = arguments.get("end_point")
     start_city = arguments.get("start_city")
     end_city = arguments.get("end_city")
     transport_mode = arguments.get("transport_mode")
 
-    if not start_point or not end_point:
-        raise ValueError("start_point and end_point are required")
+    if not end_point:
+        raise ValueError("end_point is required")
+
+    # 如果没有起点或起点为"当前位置"，使用IP定位自动获取
+    if not start_point or start_point.strip() in ["", "当前位置", "我的位置", "这里"]:
+        start_point = "当前位置"
+        start_city = None  # IP定位时不需要指定城市
 
     # 调用导航服务
     success = nav_service.navigate(start_point, end_point, start_city, end_city, transport_mode)

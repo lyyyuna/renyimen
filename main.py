@@ -24,7 +24,7 @@ class NavigationWorker(QThread):
 
 请分析这段文字是否包含导航需求。如果包含导航需求，请使用已注册的MCP导航工具来处理：
 
-1. 识别起点和终点信息
+1. 识别起点和终点信息，如果不指定起点，则起点参数为空
 2. 识别交通方式（如果用户在输入中指定了交通方式）
 3. 调用navigate工具，参数格式：
    - start_point: 起点名称
@@ -32,7 +32,7 @@ class NavigationWorker(QThread):
    - start_city: 起点城市（可选）
    - end_city: 终点城市（可选）
    - transport_mode: 交通方式（如果用户指定了交通方式）
-
+   
 支持的导航格式：
 - "从A到B"
 - "去某地"  
