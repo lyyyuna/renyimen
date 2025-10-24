@@ -54,6 +54,48 @@ class AmapLocationService:
             print(f"请求错误: {e}")
             return None
     
+    def get_current_location(self) -> Optional[Dict]:
+        """
+        获取当前位置（IP定位）
+        
+        Returns:
+            包含当前位置信息的字典
+        """
+        url = f"{self.base_url}/ip"
+        
+        params = {
+            'key': self.api_key,
+            'output': 'json'
+        }
+        
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get('status') == '1':
+                # 构造标准格式的位置信息
+                location_info = {
+                    'id': '',
+                    'name': '当前位置',
+                    'lnglat': data.get('rectangle', '').split(';')[0] if data.get('rectangle') else '',
+                    'modxy': data.get('rectangle', '').split(';')[0] if data.get('rectangle') else '',
+                    'poitype': '',
+                    'adcode': data.get('adcode', ''),
+                    'address': data.get('province', '') + data.get('city', ''),
+                    'citycode': data.get('city', ''),
+                    'cityname': data.get('city', ''),
+                    'district': data.get('province', '')
+                }
+                return location_info
+            else:
+                print(f"IP定位失败: {data.get('info', '未知错误')}")
+                return None
+                
+        except requests.RequestException as e:
+            print(f"请求错误: {e}")
+            return None
+    
     def geocode(self, address: str) -> Optional[Dict]:
         """
         地理编码：通过地址获取经纬度
@@ -172,7 +214,15 @@ def build_amap_direction_url_from_names(api_key: str, from_name: str, to_name: s
             route_type = TransportMode.DRIVING.value
     
     # 获取起点信息
-    from_info = service.get_location_info(from_name, from_city)
+    if from_name in ["当前位置", "我的位置", "这里", ""]:
+        # 使用IP定位获取当前位置
+        from_info = service.get_current_location()
+        if not from_info:
+            print("无法获取当前位置，尝试使用默认起点")
+            from_info = service.get_location_info("当前位置", from_city)
+    else:
+        from_info = service.get_location_info(from_name, from_city)
+    
     if not from_info:
         print(f"无法找到起点: {from_name}")
         return None
