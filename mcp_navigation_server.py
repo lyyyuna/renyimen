@@ -16,6 +16,7 @@ from navigation_service import NavigationService
 server = Server("navigation-server")
 
 # 创建导航服务实例
+# 导航服务实例，读取provider_config.json决定默认地图类型
 nav_service = NavigationService()
 
 
@@ -27,10 +28,15 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="navigate",
-            description="根据起点和终点打开高德地图导航链接，支持多种交通方式",
+            description="根据起点和终点打开地图导航链接（高德/百度），支持多种交通方式",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "provider": {
+                        "type": "string",
+                        "description": "地图类型：amap(高德)/baidu(百度)，默认读取配置",
+                        "enum": ["amap", "baidu"]
+                    },
                     "start_point": {
                         "type": "string",
                         "description": "起点名称，如果为空或'当前位置'则自动获取当前IP定位"
@@ -77,6 +83,7 @@ async def handle_call_tool(
     start_city = arguments.get("start_city")
     end_city = arguments.get("end_city")
     transport_mode = arguments.get("transport_mode")
+    provider = arguments.get("provider")
 
     if not end_point:
         raise ValueError("end_point is required")
@@ -87,6 +94,10 @@ async def handle_call_tool(
         start_city = None  # IP定位时不需要指定城市
 
     # 调用导航服务
+    # 如果传入了provider，临时覆盖
+    if provider:
+        nav_service.provider = provider
+
     success = nav_service.navigate(start_point, end_point, start_city, end_city, transport_mode)
     
     if success:
