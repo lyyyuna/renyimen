@@ -6,7 +6,7 @@ class NavigationService:
     def __init__(self, api_key: str = "3b16354b4a04610cf4873088846dfcb6"):
         self.api_key = api_key
     
-    def navigate(self, start_point: str, end_point: str, start_city: str = None, end_city: str = None):
+    def navigate(self, start_point: str, end_point: str, start_city: str = None, end_city: str = None, transport_mode: str = None):
         """
         根据起点和终点打开高德地图导航链接
         
@@ -15,6 +15,7 @@ class NavigationService:
             end_point: 终点名称
             start_city: 起点城市（可选）
             end_city: 终点城市（可选）
+            transport_mode: 交通方式（可选）
         
         Returns:
             bool: 是否成功打开链接
@@ -24,7 +25,8 @@ class NavigationService:
             from_name=start_point,
             to_name=end_point,
             from_city=start_city,
-            to_city=end_city
+            to_city=end_city,
+            transport_mode=transport_mode
         )
         
         if url:

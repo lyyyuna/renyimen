@@ -26,17 +26,26 @@ class NavigationWorker(QThread):
 请分析这段文字是否包含导航需求。如果包含导航需求，请使用已注册的MCP导航工具来处理：
 
 1. 识别起点和终点信息
-2. 调用navigate工具，参数格式：
+2. 识别交通方式（如果用户在输入中指定了交通方式）
+3. 调用navigate工具，参数格式：
    - start_point: 起点名称
    - end_point: 终点名称  
    - start_city: 起点城市（可选）
    - end_city: 终点城市（可选）
+   - transport_mode: 交通方式（如果用户指定了交通方式）
 
 支持的导航格式：
 - "从A到B"
 - "去某地"  
 - "导航到某地"
-- "开车从A到B"
+- "驾车从A到B"
+- "打车去某地"
+- "骑车从A到B"
+
+支持的交通方式识别（从用户输入中提取）：
+- 驾车/开车 → driving
+- 公共交通/公交/地铁 → public_transit
+- 步行/走路 → walking
 
 如果无法识别为导航请求，请简单回复"这不是导航请求"。
 如果是导航请求，请直接调用navigate工具，不要只是回复文字。"""
@@ -106,7 +115,7 @@ class InputApp(QWidget):
     
     def init_ui(self):
         self.setWindowTitle("任意门智能导航")
-        self.setFixedSize(450, 350)
+        self.setFixedSize(500, 400)
         
         layout = QVBoxLayout()
         
@@ -116,7 +125,7 @@ class InputApp(QWidget):
         input_layout = QHBoxLayout()
         
         self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("在这里输入文字...")
+        self.input_field.setPlaceholderText("例如：驾车从张江人工智能岛到虹桥火车站")
         self.input_field.returnPressed.connect(self.on_enter_pressed)
         input_layout.addWidget(self.input_field)
         
