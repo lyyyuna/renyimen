@@ -2,7 +2,7 @@ import sys
 import subprocess
 import json
 import os
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
@@ -129,6 +129,20 @@ class InputApp(QWidget):
 
         layout.addLayout(input_layout)
 
+        # 地图类型选择
+        provider_layout = QHBoxLayout()
+        provider_label = QLabel("地图类型:")
+        provider_layout.addWidget(provider_label)
+
+        self.provider_combo = QComboBox()
+        self.provider_combo.addItems(["高德", "百度"])
+        # 初始化选择与当前服务一致
+        self.provider_combo.setCurrentIndex(0 if (self.nav_service.provider or "amap") == "amap" else 1)
+        self.provider_combo.currentIndexChanged.connect(self.on_provider_changed)
+        provider_layout.addWidget(self.provider_combo)
+
+        layout.addLayout(provider_layout)
+
         self.voice_hint_label = QLabel("提示: 点击语音按钮后说\"hi,任意门,我想驾车/公交/步行从A到B\"")
         self.voice_hint_label.setStyleSheet("color: gray; font-size: 10px;")
         layout.addWidget(self.voice_hint_label)
@@ -158,6 +172,18 @@ class InputApp(QWidget):
 
     def on_enter_pressed(self):
         self.on_submit()
+
+    def on_provider_changed(self, idx: int):
+        prov = "amap" if idx == 0 else "baidu"
+        # 更新服务并持久化到配置
+        try:
+            self.nav_service.provider = prov
+            cfg_path = os.path.join(os.path.dirname(__file__), "provider_config.json")
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                f.write('{"provider": "' + prov + '"}')
+            self.output_text.append(f"🗺️ 已切换地图类型为: {'高德' if prov=='amap' else '百度'}")
+        except Exception as e:
+            self.output_text.append(f"⚠️ 保存地图类型失败: {e}")
 
     def on_voice_input(self):
         """处理语音输入"""

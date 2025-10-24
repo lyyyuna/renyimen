@@ -7,7 +7,7 @@
 - 🗣️ **自然语言输入** - 支持"从A到B"、"去某地"等自然表达
 - 🎤 **语音识别** - 支持语音输入导航指令，唤醒词"hi,任意门"
 - 🤖 **AI智能解析** - 基于 Claude CLI + MCP 服务解析导航意图
-- 🗺️ **高德地图集成** - 自动生成并打开高德地图导航链接
+- 🗺️ **地图集成** - 支持高德/百度地图，自动生成并打开导航链接
 - 💻 **友好UI界面** - PySide6 图形界面，支持异步处理
 - 🔧 **MCP架构** - 可扩展的 Model Context Protocol 服务
 
@@ -64,12 +64,17 @@ npm install -g @anthropic-ai/claude-cli
 claude auth login
 ```
 
-### 4. 获取高德地图 API Key
+### 4. 地图设置
 
 1. 访问 [高德开放平台](https://console.amap.com/)
 2. 注册账号并创建应用
 3. 获取 Web 服务 API Key
 4. 修改 `amap_service.py` 中的 API_KEY 或设置环境变量
+5. 在应用 UI 中的下拉框切换地图类型（高德/百度），或编辑 `provider_config.json`：
+
+```json
+{ "provider": "amap" } // 可选值："amap" 或 "baidu"
+```
 
 ### 5. 运行应用
 
@@ -117,7 +122,8 @@ python main.py
 - `voice_recognition_service.py` - 语音识别服务
 - `mcp_navigation_server.py` - MCP 导航服务器
 - `amap_service.py` - 高德地图 API 封装
-- `navigation_service.py` - 导航服务逻辑
+- `baidu_service.py` - 百度地图 URL 构建（Web）
+- `navigation_service.py` - 导航服务逻辑（根据 provider 选择地图）
 - `claude_desktop_config.json` - MCP 服务配置
 
 ### 工作流程
