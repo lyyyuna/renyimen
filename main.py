@@ -2,7 +2,7 @@ import sys
 import subprocess
 import json
 import os
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
@@ -33,9 +33,10 @@ class NavigationWorker(QThread):
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, text):
+    def __init__(self, text, map_type: str = "amap"):
         super().__init__()
         self.text = text
+        self.map_type = map_type
 
     def run(self):
         try:
@@ -53,6 +54,9 @@ class NavigationWorker(QThread):
    - start_city: 起点城市（可选）
    - end_city: 终点城市（可选）
    - transport_mode: 交通方式（如果用户指定了交通方式）
+   - map_type: 地图类型（amap/baidu），必须设置为用户当前选择的值
+
+当前用户选择的地图类型为: {self.map_type}
    
 支持的导航格式：
 - "从A到B"
@@ -103,7 +107,11 @@ class NavigationWorker(QThread):
 class InputApp(QWidget):
     def __init__(self):
         super().__init__()
-        self.nav_service = NavigationService()
+        # 从环境变量读取地图密钥
+        amap_key = os.getenv("AMAP_API_KEY", "3b16354b4a04610cf4873088846dfcb6")
+        baidu_ak = os.getenv("BAIDU_AK", "")
+        default_map = os.getenv("DEFAULT_MAP", "amap")
+        self.nav_service = NavigationService(api_key=amap_key, baidu_ak=baidu_ak, default_map=default_map)
         self.voice_service = VoiceRecognitionService()
         self.init_ui()
 
@@ -121,6 +129,12 @@ class InputApp(QWidget):
         self.input_field.setPlaceholderText("例如：驾车从张江人工智能岛到虹桥火车站")
         self.input_field.returnPressed.connect(self.on_enter_pressed)
         input_layout.addWidget(self.input_field)
+
+        # 地图类型下拉选择
+        self.map_selector = QComboBox()
+        self.map_selector.addItems(["高德", "百度"])
+        self.map_selector.setFixedWidth(100)
+        input_layout.addWidget(self.map_selector)
 
         self.voice_button = QPushButton("🎤 语音")
         self.voice_button.setFixedWidth(80)
@@ -202,9 +216,9 @@ class InputApp(QWidget):
     def on_submit(self):
         text = self.input_field.text()
         if text:
-            self.output_text.append(f"你输入了: {text}")
-            self.start_navigation_process(text)
-            self.input_field.clear()
+        self.output_text.append(f"你输入了: {text}")
+        self.start_navigation_process(text)
+        self.input_field.clear()
 
     def start_navigation_process(self, text):
         """启动导航处理过程"""
@@ -223,7 +237,9 @@ class InputApp(QWidget):
         self.output_text.append("🤖 正在分析导航请求...")
 
         # 启动后台线程
-        self.worker = NavigationWorker(text)
+        selected_map = self.map_selector.currentText()
+        map_type = "amap" if selected_map == "高德" else "baidu"
+        self.worker = NavigationWorker(text, map_type)
         self.worker.finished.connect(self.on_navigation_finished)
         self.worker.error.connect(self.on_navigation_error)
         self.worker.start()
@@ -266,6 +282,10 @@ class InputApp(QWidget):
         text_lower = text.lower()
 
         # 简单的关键词识别
+        # 根据下拉选择确定地图类型
+        selected_map = self.map_selector.currentText()
+        map_type = "amap" if selected_map == "高德" else "baidu"
+
         if "从" in text and "到" in text:
             parts = text.split("从")
             if len(parts) > 1:
@@ -275,7 +295,7 @@ class InputApp(QWidget):
                     if len(from_to) >= 2:
                         start = from_to[0].strip()
                         end = from_to[1].strip()
-                        success = self.nav_service.navigate(start, end)
+                        success = self.nav_service.navigate(start, end, map_type=map_type)
                         if success:
                             self.output_text.append(f"🗺️ 备用解析成功: {start} → {end}")
                         else:
@@ -286,7 +306,7 @@ class InputApp(QWidget):
             parts = text.split("去")
             if len(parts) > 1:
                 destination = parts[1].strip()
-                success = self.nav_service.navigate("当前位置", destination)
+                success = self.nav_service.navigate("当前位置", destination, map_type=map_type)
                 if success:
                     self.output_text.append(f"🗺️ 备用解析成功: 当前位置 → {destination}")
                 else:

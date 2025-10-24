@@ -27,7 +27,7 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="navigate",
-            description="根据起点和终点打开高德地图导航链接，支持多种交通方式",
+            description="根据起点和终点打开导航链接，支持高德/百度与多种交通方式",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -51,6 +51,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "交通方式：driving(驾车)/public_transit(公交)/walking(步行)，默认为driving",
                         "enum": ["driving", "public_transit", "walking"]
+                    },
+                    "map_type": {
+                        "type": "string",
+                        "description": "地图类型：amap(高德)/baidu(百度)，默认为amap",
+                        "enum": ["amap", "baidu"]
                     }
                 },
                 "required": ["end_point"],
@@ -77,6 +82,7 @@ async def handle_call_tool(
     start_city = arguments.get("start_city")
     end_city = arguments.get("end_city")
     transport_mode = arguments.get("transport_mode")
+    map_type = arguments.get("map_type")
 
     if not end_point:
         raise ValueError("end_point is required")
@@ -87,11 +93,12 @@ async def handle_call_tool(
         start_city = None  # IP定位时不需要指定城市
 
     # 调用导航服务
-    success = nav_service.navigate(start_point, end_point, start_city, end_city, transport_mode)
+    success = nav_service.navigate(start_point, end_point, start_city, end_city, transport_mode, map_type)
     
     if success:
         mode_text = f" ({transport_mode})" if transport_mode else ""
-        message = f"已成功打开从 {start_point} 到 {end_point} 的导航链接{mode_text}"
+        map_text = f" [{map_type}]" if map_type else " [amap]"
+        message = f"已成功打开从 {start_point} 到 {end_point} 的导航链接{mode_text}{map_text}"
     else:
         message = f"打开导航链接失败：从 {start_point} 到 {end_point}"
 

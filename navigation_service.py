@@ -1,12 +1,15 @@
 import webbrowser
 from amap_service import build_amap_direction_url_from_names
+from baidu_service import build_baidu_direction_url_from_names
 
 
 class NavigationService:
-    def __init__(self, api_key: str = "3b16354b4a04610cf4873088846dfcb6"):
+    def __init__(self, api_key: str = "3b16354b4a04610cf4873088846dfcb6", baidu_ak: str | None = None, default_map: str = "amap"):
         self.api_key = api_key
+        self.baidu_ak = baidu_ak or ""  # 留空则使用AMap
+        self.default_map = default_map
     
-    def navigate(self, start_point: str, end_point: str, start_city: str = None, end_city: str = None, transport_mode: str = None):
+    def navigate(self, start_point: str, end_point: str, start_city: str = None, end_city: str = None, transport_mode: str = None, map_type: str = None):
         """
         根据起点和终点打开高德地图导航链接
         
@@ -20,14 +23,31 @@ class NavigationService:
         Returns:
             bool: 是否成功打开链接
         """
-        url = build_amap_direction_url_from_names(
-            api_key=self.api_key,
-            from_name=start_point,
-            to_name=end_point,
-            from_city=start_city,
-            to_city=end_city,
-            transport_mode=transport_mode
-        )
+        provider = (map_type or self.default_map or "amap").lower()
+        url = None
+
+        if provider == "baidu":
+            if not self.baidu_ak:
+                print("未配置百度AK，回退到高德地图")
+            else:
+                url = build_baidu_direction_url_from_names(
+                    ak=self.baidu_ak,
+                    from_name=start_point,
+                    to_name=end_point,
+                    from_city=start_city,
+                    to_city=end_city,
+                    transport_mode=transport_mode
+                )
+
+        if not url:
+            url = build_amap_direction_url_from_names(
+                api_key=self.api_key,
+                from_name=start_point,
+                to_name=end_point,
+                from_city=start_city,
+                to_city=end_city,
+                transport_mode=transport_mode
+            )
         
         if url:
             try:
