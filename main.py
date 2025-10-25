@@ -105,6 +105,7 @@ class InputApp(QWidget):
         super().__init__()
         self.nav_service = NavigationService()
         self.voice_service = VoiceRecognitionService()
+        self.voice_listening = False
         self.init_ui()
 
     def init_ui(self):
@@ -128,10 +129,16 @@ class InputApp(QWidget):
         self.map_provider_combo.setFixedWidth(90)
         input_layout.addWidget(self.map_provider_combo)
 
-        self.voice_button = QPushButton("🎤 语音")
+        self.voice_button = QPushButton("🎤 开始")
         self.voice_button.setFixedWidth(80)
         self.voice_button.clicked.connect(self.on_voice_input)
         input_layout.addWidget(self.voice_button)
+
+        self.voice_pause_button = QPushButton("⏸ 暂停")
+        self.voice_pause_button.setFixedWidth(80)
+        self.voice_pause_button.setEnabled(False)
+        self.voice_pause_button.clicked.connect(self.on_voice_pause_toggle)
+        input_layout.addWidget(self.voice_pause_button)
 
         layout.addLayout(input_layout)
 
@@ -166,17 +173,24 @@ class InputApp(QWidget):
         self.on_submit()
 
     def on_voice_input(self):
-        """处理语音输入"""
-        self.output_text.append("🎤 请说话...")
-        self.voice_button.setEnabled(False)
-        self.voice_button.setText("识别中...")
-        self.input_field.setEnabled(False)
-        self.submit_button.setEnabled(False)
-
-        self.voice_worker = VoiceRecognitionWorker(self.voice_service)
-        self.voice_worker.finished.connect(self.on_voice_recognition_finished)
-        self.voice_worker.error.connect(self.on_voice_recognition_error)
-        self.voice_worker.start()
+        """开始/停止后台语音输入"""
+        if not self.voice_listening:
+            # Start background listening
+            self.output_text.append("🎤 后台监听已启动，请说话...")
+            self.input_field.setEnabled(False)
+            self.submit_button.setEnabled(False)
+            started = self.voice_service.start_background_listening(self._on_bg_text, phrase_time_limit=10, error_callback=self._on_bg_error)
+            if started:
+                self.voice_listening = True
+                self.voice_button.setText("■ 停止")
+                self.voice_pause_button.setEnabled(True)
+                self.voice_hint_label.setText("提示: 说出导航需求，点击暂停/继续控制识别")
+            else:
+                self.output_text.append("❌ 启动后台监听失败")
+        else:
+            # Stop background listening
+            self.voice_service.stop_background_listening()
+            self._reset_voice_ui()
 
     def on_voice_recognition_finished(self, text):
         """语音识别完成"""
@@ -185,6 +199,11 @@ class InputApp(QWidget):
         result = self.voice_service.parse_navigation_command(text)
 
         if result['valid']:
+            # 停止后台监听，避免重复触发导航
+            if self.voice_listening:
+                self.voice_service.stop_background_listening()
+                self.voice_listening = False
+                self.voice_pause_button.setEnabled(False)
             command_text = text
             self.input_field.setText(command_text)
             self.output_text.append("✅ 检测到导航指令,正在处理...")
@@ -192,18 +211,58 @@ class InputApp(QWidget):
         else:
             self.output_text.append("❌ 未检测到有效的导航指令")
             self.output_text.append("💡 请使用格式: hi,任意门,我想驾车/公交/步行从A到B")
-            self.voice_button.setEnabled(True)
-            self.voice_button.setText("🎤 语音")
-            self.input_field.setEnabled(True)
-            self.submit_button.setEnabled(True)
+            self._reset_voice_ui()
 
     def on_voice_recognition_error(self, error):
         """语音识别出错"""
         self.output_text.append(f"❌ {error}")
+        self._reset_voice_ui()
+
+    def _on_bg_text(self, text: str):
+        """后台监听回调：切回UI线程处理识别文本"""
+        QTimer.singleShot(0, lambda: self._handle_bg_text(text))
+
+    def _handle_bg_text(self, text: str):
+        # Mirror single-run behavior
+        self.on_voice_recognition_finished(text)
+
+    def _on_bg_error(self, message: str):
+        """后台监听错误/未识别反馈：切回UI线程更新提示"""
+        QTimer.singleShot(0, lambda: self._handle_bg_error(message))
+
+    def _handle_bg_error(self, message: str):
+        # 当后台未识别或服务错误时给予用户反馈，不打断监听
+        if self.voice_listening:
+            self.output_text.append(f"⚠️ {message}")
+
+    def on_voice_pause_toggle(self):
+        """暂停/继续后台语音识别"""
+        if not self.voice_listening:
+            return
+        # Toggle pause state
+        # Try to pause or resume via service
+        # We can determine current state via button text
+        if self.voice_pause_button.text().startswith("⏸"):
+            ok = self.voice_service.pause_background()
+            if ok:
+                self.voice_pause_button.setText("▶️ 继续")
+                self.output_text.append("⏸ 已暂停识别")
+        else:
+            ok = self.voice_service.resume_background()
+            if ok:
+                self.voice_pause_button.setText("⏸ 暂停")
+                self.output_text.append("▶️ 已恢复识别")
+
+    def _reset_voice_ui(self):
+        """恢复与语音相关的UI状态"""
+        self.voice_listening = False
         self.voice_button.setEnabled(True)
-        self.voice_button.setText("🎤 语音")
+        self.voice_button.setText("🎤 开始")
+        self.voice_pause_button.setEnabled(False)
+        self.voice_pause_button.setText("⏸ 暂停")
         self.input_field.setEnabled(True)
         self.submit_button.setEnabled(True)
+        self.voice_hint_label.setText("提示: 点击语音开始后台监听，或直接输入")
 
     def on_submit(self):
         text = self.input_field.text()
@@ -270,7 +329,8 @@ class InputApp(QWidget):
         self.submit_button.setEnabled(True)
         self.submit_button.setText("确定")
         self.voice_button.setEnabled(True)
-        self.voice_button.setText("🎤 语音")
+        self.voice_button.setText("🎤 开始")
+        self.voice_pause_button.setEnabled(False)
 
 
 
