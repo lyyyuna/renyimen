@@ -199,6 +199,11 @@ class InputApp(QWidget):
         result = self.voice_service.parse_navigation_command(text)
 
         if result['valid']:
+            # 停止后台监听，避免重复触发导航
+            if self.voice_listening:
+                self.voice_service.stop_background_listening()
+                self.voice_listening = False
+                self.voice_pause_button.setEnabled(False)
             command_text = text
             self.input_field.setText(command_text)
             self.output_text.append("✅ 检测到导航指令,正在处理...")
@@ -315,7 +320,8 @@ class InputApp(QWidget):
         self.submit_button.setEnabled(True)
         self.submit_button.setText("确定")
         self.voice_button.setEnabled(True)
-        self.voice_button.setText("🎤 语音")
+        self.voice_button.setText("🎤 开始")
+        self.voice_pause_button.setEnabled(False)
 
 
 
