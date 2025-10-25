@@ -5,7 +5,7 @@
 ## 功能特性
 
 - 🗣️ **自然语言输入** - 支持"从A到B"、"去某地"等自然表达
-- 🎤 **语音识别** - 支持语音输入导航指令，唤醒词"hi,任意门"
+- 🎤 **语音识别** - 支持语音输入导航指令，唤醒词"hi,任意门"。在检测到环境变量配置后，优先使用七牛云 ASR。
 - 🤖 **AI智能解析** - 基于 Claude CLI + MCP 服务解析导航意图
 - 🗺️ **多地图集成** - 自动生成并打开导航链接，支持高德与百度
 - 💻 **友好UI界面** - PySide6 图形界面，支持异步处理
@@ -111,6 +111,19 @@ python main.py
    - "hi,任意门,我想驾车从张江人工智能岛到虹桥火车站"
    - "hi,任意门,我想打车去浦东机场"
 3. 系统会自动识别语音并解析导航需求
+
+#### 使用七牛云 ASR（推荐）
+
+设置环境变量以启用七牛云语音识别：
+
+- `QINIU_OPENAI_API_KEY`: 七牛云 AI Token API 密钥，形如 `sk-...`
+- `QINIU_OPENAI_BASE_WS`（可选）：WebSocket 接入点，默认 `wss://openai.qiniu.com/v1`
+- `QINIU_ASR_SAMPLE_RATE`（可选）：采样率，默认 `16000`
+- `QINIU_ASR_CHANNELS`（可选）：声道数，默认 `1`
+- `QINIU_ASR_BITS`（可选）：采样位宽，默认 `16`
+- `QINIU_ASR_SEG_DURATION_MS`（可选）：分段时长，默认 `300`
+
+启用后，`voice_recognition_service.py` 会将麦克风采集的音频经七牛云 ASR 实时识别，无法获取密钥时回退到本地 Google 识别。
 4. 识别成功后自动处理导航请求
 
 ## 技术架构
@@ -140,7 +153,7 @@ python main.py
 ```
 renyimen/
 ├── main.py                       # 主应用程序
-├── voice_recognition_service.py  # 语音识别服务
+├── voice_recognition_service.py  # 语音识别服务（支持七牛云 ASR WebSocket）
 ├── mcp_navigation_server.py      # MCP 服务器
 ├── amap_service.py               # 高德地图 API
 ├── baidu_service.py              # 百度地图 API
