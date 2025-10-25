@@ -10,5 +10,6 @@ dependencies = [
     "requests>=2.32.5",
     "speechrecognition>=3.10.0",
     "pyaudio>=0.2.13",
-    "websockets>=12.0",
+    "websockets>=10.0",
+    "qasync>=0.28.0",
 ]

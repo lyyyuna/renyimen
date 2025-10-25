@@ -1,35 +1,60 @@
 import sys
+import logging
 import subprocess
 import json
 import os
+import asyncio
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
 
+# 配置日志
+logging.basicConfig(level=logging.DEBUG)
+
+# macOS 事件循环优化
+os.environ["QT_MAC_WANTS_LAYER"] = "1"
 
 class VoiceRecognitionWorker(QThread):
-    """后台处理语音识别的工作线程"""
     finished = Signal(str)
     error = Signal(str)
 
-    def __init__(self, voice_service):
+    def __init__(self, voice_service, is_wake_word=False):
         super().__init__()
         self.voice_service = voice_service
+        self.is_wake_word = is_wake_word
+        self.loop = None
 
     def run(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         try:
-            text = self.voice_service.listen_and_recognize(timeout=5, phrase_time_limit=10)
-            if text:
-                self.finished.emit(text)
+            if self.is_wake_word:
+                result = self.loop.run_until_complete(self.voice_service.listen_for_wake_word(timeout=5, phrase_time_limit=3))
+                if result:
+                    self.finished.emit("唤醒词检测成功")
+                else:
+                    self.error.emit("未检测到唤醒词")
             else:
-                self.error.emit("未识别到语音或识别失败")
+                text = self.loop.run_until_complete(self.voice_service.listen_and_recognize(timeout=5, phrase_time_limit=10))
+                if text:
+                    self.finished.emit(text)
+                else:
+                    self.error.emit("未识别到语音或识别失败")
         except Exception as e:
             self.error.emit(f"语音识别出错: {str(e)}")
+        finally:
+            self.loop.close()
+            self.loop = None
 
+    def stop(self):
+        logging.info("停止 VoiceRecognitionWorker 线程")
+        if self.loop and self.loop.is_running():
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        self.quit()
+        self.wait(1000)
 
 class NavigationWorker(QThread):
-    """后台处理导航请求的工作线程"""
     finished = Signal(str)
     error = Signal(str)
 
@@ -39,7 +64,6 @@ class NavigationWorker(QThread):
 
     def run(self):
         try:
-            # 执行导航处理逻辑
             config_path = os.path.join(os.path.dirname(__file__), "claude_desktop_config.json")
             prompt = f"""用户输入："{self.text}"
 
@@ -99,12 +123,13 @@ class NavigationWorker(QThread):
         except Exception as e:
             self.error.emit(f"❌ 调用Claude CLI失败: {str(e)}")
 
-
 class InputApp(QWidget):
     def __init__(self):
         super().__init__()
         self.nav_service = NavigationService()
         self.voice_service = VoiceRecognitionService()
+        self.is_listening_wake_word = False
+        self.active_threads = []
         self.init_ui()
 
     def init_ui(self):
@@ -122,7 +147,6 @@ class InputApp(QWidget):
         self.input_field.returnPressed.connect(self.on_enter_pressed)
         input_layout.addWidget(self.input_field)
 
-        # 地图类型下拉（高德/百度）
         self.map_provider_combo = QComboBox()
         self.map_provider_combo.addItems(["高德", "百度"])
         self.map_provider_combo.setFixedWidth(90)
@@ -133,9 +157,14 @@ class InputApp(QWidget):
         self.voice_button.clicked.connect(self.on_voice_input)
         input_layout.addWidget(self.voice_button)
 
+        self.wake_word_button = QPushButton("唤醒监听")
+        self.wake_word_button.setFixedWidth(100)
+        self.wake_word_button.clicked.connect(self.toggle_wake_word_listening)
+        input_layout.addWidget(self.wake_word_button)
+
         layout.addLayout(input_layout)
 
-        self.voice_hint_label = QLabel("提示: 点击语音按钮后说\"hi,任意门,我想驾车/公交/步行从A到B\"")
+        self.voice_hint_label = QLabel("提示: 清晰地说\"hi,任意门,我想驾车/公交/步行从A到B\"")
         self.voice_hint_label.setStyleSheet("color: gray; font-size: 10px;")
         layout.addWidget(self.voice_hint_label)
 
@@ -143,7 +172,6 @@ class InputApp(QWidget):
         self.submit_button.clicked.connect(self.on_submit)
         layout.addWidget(self.submit_button)
 
-        # 添加进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
@@ -157,53 +185,101 @@ class InputApp(QWidget):
 
         self.setLayout(layout)
 
-        # 初始化进度条定时器
         self.progress_timer = QTimer()
         self.progress_timer.timeout.connect(self.update_progress)
         self.progress_value = 0
 
-    def on_enter_pressed(self):
-        self.on_submit()
+    def toggle_wake_word_listening(self):
+        if not self.is_listening_wake_word:
+            self.is_listening_wake_word = True
+            self.wake_word_button.setText("停止监听")
+            self.output_text.append("🔊 开始监听唤醒词...")
+            self.start_wake_word_listening()
+        else:
+            self.is_listening_wake_word = False
+            self.wake_word_button.setText("唤醒监听")
+            self.output_text.append("🛑 停止监听唤醒词")
+            for thread in self.active_threads[:]:
+                thread.stop()
+                self.active_threads.remove(thread)
+
+    def start_wake_word_listening(self):
+        if not self.is_listening_wake_word:
+            return
+        self.voice_worker = VoiceRecognitionWorker(self.voice_service, is_wake_word=True)
+        self.voice_worker.finished.connect(self.on_wake_word_detected)
+        self.voice_worker.error.connect(self.on_wake_word_error)
+        self.active_threads.append(self.voice_worker)
+        self.voice_worker.start()
+
+    def on_wake_word_detected(self):
+        self.output_text.append("✅ 检测到唤醒词，进入语音识别...")
+        self.is_listening_wake_word = False
+        self.wake_word_button.setText("唤醒监听")
+        for thread in self.active_threads[:]:
+            thread.stop()
+            self.active_threads.remove(thread)
+        self.on_voice_input()
+
+    def on_wake_word_error(self, error):
+        self.output_text.append(f"❌ {error}")
+        for thread in self.active_threads[:]:
+            if thread == self.sender():
+                thread.stop()
+                self.active_threads.remove(thread)
+        self.start_wake_word_listening()
 
     def on_voice_input(self):
-        """处理语音输入"""
         self.output_text.append("🎤 请说话...")
         self.voice_button.setEnabled(False)
         self.voice_button.setText("识别中...")
         self.input_field.setEnabled(False)
         self.submit_button.setEnabled(False)
+        self.wake_word_button.setEnabled(False)
 
         self.voice_worker = VoiceRecognitionWorker(self.voice_service)
         self.voice_worker.finished.connect(self.on_voice_recognition_finished)
         self.voice_worker.error.connect(self.on_voice_recognition_error)
+        self.active_threads.append(self.voice_worker)
         self.voice_worker.start()
 
     def on_voice_recognition_finished(self, text):
-        """语音识别完成"""
         self.output_text.append(f"🎤 识别到: {text}")
-
-        result = self.voice_service.parse_navigation_command(text)
-
+        # 手动语音输入不需要唤醒词
+        result = self.voice_service.parse_navigation_command(text, require_wake_word=False)
         if result['valid']:
             command_text = text
             self.input_field.setText(command_text)
-            self.output_text.append("✅ 检测到导航指令,正在处理...")
+            self.output_text.append("✅ 检测到导航指令，正在处理...")
             self.start_navigation_process(command_text)
         else:
             self.output_text.append("❌ 未检测到有效的导航指令")
-            self.output_text.append("💡 请使用格式: hi,任意门,我想驾车/公交/步行从A到B")
-            self.voice_button.setEnabled(True)
-            self.voice_button.setText("🎤 语音")
-            self.input_field.setEnabled(True)
-            self.submit_button.setEnabled(True)
+            self.output_text.append("💡 请使用格式: 驾车/公交/步行从A到B 或 去某地")
+        for thread in self.active_threads[:]:
+            if thread == self.sender():
+                thread.stop()
+                self.active_threads.remove(thread)
+        self.finish_voice_process()
 
     def on_voice_recognition_error(self, error):
-        """语音识别出错"""
         self.output_text.append(f"❌ {error}")
+        for thread in self.active_threads[:]:
+            if thread == self.sender():
+                thread.stop()
+                self.active_threads.remove(thread)
+        self.finish_voice_process()
+
+    def finish_voice_process(self):
         self.voice_button.setEnabled(True)
         self.voice_button.setText("🎤 语音")
         self.input_field.setEnabled(True)
         self.submit_button.setEnabled(True)
+        self.wake_word_button.setEnabled(True)
+        if self.is_listening_wake_word:
+            self.start_wake_word_listening()
+
+    def on_enter_pressed(self):
+        self.on_submit()
 
     def on_submit(self):
         text = self.input_field.text()
@@ -213,72 +289,66 @@ class InputApp(QWidget):
             self.input_field.clear()
 
     def start_navigation_process(self, text):
-        """启动导航处理过程"""
-        # 禁用输入控件
         self.input_field.setEnabled(False)
         self.submit_button.setEnabled(False)
         self.submit_button.setText("处理中...")
         self.voice_button.setEnabled(False)
+        self.wake_word_button.setEnabled(False)
 
-        # 显示进度条并开始动画
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, 0)  # 无限进度条
+        self.progress_bar.setRange(0, 0)
         self.progress_value = 0
-        self.progress_timer.start(100)  # 每100ms更新一次
+        self.progress_timer.start(100)
 
         self.output_text.append("🤖 正在分析导航请求...")
 
-        # 启动后台线程
-        # 将选择的地图类型设置到环境变量，供 MCP 服务读取
         provider = "amap" if self.map_provider_combo.currentText() == "高德" else "baidu"
         os.environ["MAP_PROVIDER"] = provider
-
-        # 同步到本地导航服务备用解析
         self.nav_service.provider = provider
 
         self.worker = NavigationWorker(text)
         self.worker.finished.connect(self.on_navigation_finished)
         self.worker.error.connect(self.on_navigation_error)
+        self.active_threads.append(self.worker)
         self.worker.start()
 
     def update_progress(self):
-        """更新进度条动画"""
         self.progress_value = (self.progress_value + 5) % 100
         if self.progress_bar.maximum() != 0:
             self.progress_bar.setValue(self.progress_value)
 
     def on_navigation_finished(self, result):
-        """导航处理完成"""
         self.finish_navigation_process()
         self.output_text.append(result)
+        for thread in self.active_threads[:]:
+            if thread == self.sender():
+                thread.quit()
+                thread.wait(1000)
+                self.active_threads.remove(thread)
 
     def on_navigation_error(self, error):
-        """导航处理出错"""
         self.finish_navigation_process()
         self.output_text.append(error)
-        # 尝试备用解析
         self.fallback_navigation_parse(self.worker.text)
+        for thread in self.active_threads[:]:
+            if thread == self.sender():
+                thread.quit()
+                thread.wait(1000)
+                self.active_threads.remove(thread)
 
     def finish_navigation_process(self):
-        """结束导航处理过程"""
-        # 停止进度条
         self.progress_timer.stop()
         self.progress_bar.setVisible(False)
-
-        # 恢复输入控件
         self.input_field.setEnabled(True)
         self.submit_button.setEnabled(True)
         self.submit_button.setText("确定")
         self.voice_button.setEnabled(True)
-        self.voice_button.setText("🎤 语音")
-
-
+        self.wake_word_button.setEnabled(True)
+        if self.is_listening_wake_word:
+            self.start_wake_word_listening()
 
     def fallback_navigation_parse(self, text):
-        """备用导航解析方案"""
         text_lower = text.lower()
-
-        # 简单的关键词识别
         if "从" in text and "到" in text:
             parts = text.split("从")
             if len(parts) > 1:
@@ -294,7 +364,6 @@ class InputApp(QWidget):
                         else:
                             self.output_text.append(f"❌ 导航失败: {start} → {end}")
                         return
-
         elif "去" in text:
             parts = text.split("去")
             if len(parts) > 1:
@@ -305,10 +374,15 @@ class InputApp(QWidget):
                 else:
                     self.output_text.append(f"❌ 导航失败: 当前位置 → {destination}")
                 return
-
         self.output_text.append("❓ 无法识别导航请求，请使用'从A到B'或'去某地'的格式")
 
-
+    def closeEvent(self, event):
+        logging.info("窗口关闭，停止所有线程")
+        self.is_listening_wake_word = False
+        for thread in self.active_threads[:]:
+            thread.stop()
+            self.active_threads.remove(thread)
+        event.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
