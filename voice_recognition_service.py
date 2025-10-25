@@ -202,7 +202,7 @@ class VoiceRecognitionService:
             "request": {"model_name": "asr", "enable_punc": True}
         }
         payload_bytes = gzip.compress(json.dumps(req).encode('utf-8'))
-        seq = 1  # 配置消息序列号
+        seq = 1
         init_msg = bytearray(self._gen_header(message_type=self.FULL_CLIENT_REQUEST, message_type_specific_flags=self.POS_SEQUENCE))
         init_msg.extend(self._gen_before_payload(sequence=seq))
         init_msg.extend(len(payload_bytes).to_bytes(4, 'big'))
@@ -233,14 +233,11 @@ class VoiceRecognitionService:
                     logging.warning(f"配置响应失败: {e}")
                     return None
 
-                seq_inner = -2  # 尝试匹配服务端期望的autoAssignedSequence (-2)
-                # 备用方案：禁用序列号
-                # message_type_specific_flags = 0x02  # 仅is_last_package
-                # audio_msg = bytearray(self._gen_header(message_type=self.AUDIO_ONLY_REQUEST, message_type_specific_flags=message_type_specific_flags))
+                seq_inner = -2  # 匹配服务端期望的autoAssignedSequence (-2)
                 compressed_chunk = gzip.compress(pcm_bytes)
                 audio_msg = bytearray(self._gen_header(
                     message_type=self.AUDIO_ONLY_REQUEST,
-                    message_type_specific_flags=self.POS_SEQUENCE | 0x02  # 正序列 + 最后包
+                    message_type_specific_flags=self.POS_SEQUENCE | 0x02
                 ))
                 audio_msg.extend(self._gen_before_payload(sequence=seq_inner))
                 audio_msg.extend(len(compressed_chunk).to_bytes(4, 'big'))
@@ -311,7 +308,8 @@ class VoiceRecognitionService:
             logging.warning("输入文本为空")
             return {'valid': False}
 
-        text = text.replace(" ", "").replace(",", "").lower()
+        # 改进预处理：移除空格、逗号、句号
+        text = text.replace(" ", "").replace(",", "").replace("。", "").lower()
         logging.debug(f"处理后的输入文本: {text}")
 
         if require_wake_word:
@@ -341,8 +339,10 @@ class VoiceRecognitionService:
         for keyword, mode in transport_keywords.items():
             if keyword in text:
                 result['transport_mode'] = mode
+                text = text.replace(keyword, '')  # 移除交通方式，便于后续匹配
                 break
 
+        # 支持“从A到B”
         from_to_pattern = r'从(.+?)到(.+)'
         match = re.search(from_to_pattern, text)
         if match:
@@ -351,12 +351,13 @@ class VoiceRecognitionService:
             logging.debug(f"解析导航: 从 {result['start_point']} 到 {result['end_point']}, 方式: {result['transport_mode']}")
             return result
 
-        go_to_pattern = r'(?:导航)?去(.+)'
+        # 支持“导航到某地”或“到某地”或“去某地”
+        go_to_pattern = r'(?:导航)?[到去](.+)'
         match = re.search(go_to_pattern, text)
         if match:
             result['end_point'] = match.group(1).strip()
             logging.debug(f"解析导航: 去 {result['end_point']}, 方式: {result['transport_mode']}")
             return result
 
-        logging.warning("无法匹配导航模式")
+        logging.warning(f"无法匹配导航模式，处理后文本: {text}")
         return {'valid': False}
