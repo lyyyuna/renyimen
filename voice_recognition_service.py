@@ -21,6 +21,8 @@ class VoiceRecognitionService:
         self.wake_word = "任意门"
         self.qiniu_base_ws = os.environ.get("QINIU_OPENAI_BASE_WS", "wss://openai.qiniu.com/v1")
         self.qiniu_api_key = os.environ.get("QINIU_OPENAI_API_KEY")
+        if not self.qiniu_api_key:
+            logging.error("缺少 Qiniu API Key，请检查环境变量 QINIU_OPENAI_API_KEY")
         self.sample_rate = int(os.environ.get("QINIU_ASR_SAMPLE_RATE", "16000"))
         self.channels = int(os.environ.get("QINIU_ASR_CHANNELS", "1"))
         self.bits = int(os.environ.get("QINIU_ASR_BITS", "16"))
@@ -34,6 +36,7 @@ class VoiceRecognitionService:
                 logging.info("开始监听麦克风...")
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
                 pcm_data = audio.get_raw_data(convert_rate=self.sample_rate, convert_width=self.bits // 8)
+                logging.info(f"音频参数: 采样率={self.sample_rate}, 位深={self.bits}, 通道数={self.channels}, 数据长度={len(pcm_data)}")
                 if len(pcm_data) == 0:
                     logging.warning("录制音频数据为空")
                     return None
@@ -45,12 +48,11 @@ class VoiceRecognitionService:
                     logging.info(f"Qiniu 识别结果: {text}")
                     return text
                 else:
-                    logging.warning("Qiniu ASR 失败，回退到 Google")
-
-            logging.info("使用 Google Speech Recognition...")
-            text = self.recognizer.recognize_google(audio, language='zh-CN')
-            logging.info(f"Google 识别结果: {text}")
-            return text
+                    logging.error("Qiniu ASR 未返回有效结果")
+                    return None
+            else:
+                logging.error("缺少 Qiniu API Key，无法进行语音识别")
+                return None
         except sr.WaitTimeoutError:
             logging.warning("语音监听超时")
             return None
@@ -68,6 +70,7 @@ class VoiceRecognitionService:
                 logging.info("开始监听唤醒词...")
                 audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
                 pcm_data = audio.get_raw_data(convert_rate=self.sample_rate, convert_width=self.bits // 8)
+                logging.info(f"音频参数: 采样率={self.sample_rate}, 位深={self.bits}, 通道数={self.channels}, 数据长度={len(pcm_data)}")
                 if len(pcm_data) == 0:
                     logging.warning("录制音频数据为空")
                     return False
@@ -78,13 +81,10 @@ class VoiceRecognitionService:
                     if text and ("任意门" in text.lower() or "任意" in text.lower() or "hi" in text.lower()):
                         logging.info(f"检测到唤醒词: {text}")
                         return True
+                    return False
                 else:
-                    logging.info("使用 Google Speech Recognition 检测唤醒词...")
-                    text = self.recognizer.recognize_google(audio, language='zh-CN')
-                    if text and ("任意门" in text.lower() or "任意" in text.lower() or "hi" in text.lower()):
-                        logging.info(f"检测到唤醒词: {text}")
-                        return True
-            return False
+                    logging.error("缺少 Qiniu API Key，无法检测唤醒词")
+                    return False
         except sr.WaitTimeoutError:
             logging.debug("唤醒词监听超时")
             return False
@@ -184,7 +184,7 @@ class VoiceRecognitionService:
 
     async def _qiniu_asr_stream_once(self, pcm_bytes: bytes, is_wake_word=False) -> str | None:
         if not self.qiniu_api_key:
-            logging.warning("缺少 Qiniu API Key")
+            logging.error("缺少 Qiniu API Key，请检查环境变量 QINIU_OPENAI_API_KEY")
             return None
         ws_url = f"{self.qiniu_base_ws}/voice/asr"
         headers = ["Authorization: Bearer " + self.qiniu_api_key]
@@ -202,54 +202,73 @@ class VoiceRecognitionService:
             "request": {"model_name": "asr", "enable_punc": True}
         }
         payload_bytes = gzip.compress(json.dumps(req).encode('utf-8'))
-        seq = 1
+        seq = 1  # 配置消息序列号
         init_msg = bytearray(self._gen_header(message_type=self.FULL_CLIENT_REQUEST, message_type_specific_flags=self.POS_SEQUENCE))
         init_msg.extend(self._gen_before_payload(sequence=seq))
         init_msg.extend(len(payload_bytes).to_bytes(4, 'big'))
         init_msg.extend(payload_bytes)
-        logging.info("发送配置消息")
+        logging.info(f"发送配置消息，序列号: {seq}")
 
         def sync_websocket():
             ws = websocket.WebSocket()
             try:
-                ws.connect(ws_url, header=headers)
+                ws.connect(ws_url, header=headers, timeout=10)
                 logging.info("WebSocket 连接成功")
+                ws.settimeout(5)
                 ws.send_binary(init_msg)
                 try:
                     res = ws.recv()
                     parsed = self._parse_response(res)
                     logging.info(f"配置响应: {parsed}")
                     if 'code' in parsed and parsed['code'] != 0:
-                        logging.error(f"配置错误码: {parsed['code']}")
+                        logging.error(f"配置错误码: {parsed['code']}, 错误信息: {parsed['payload_msg'].get('error', '未知错误')}")
                         return None
+                except websocket.WebSocketTimeoutException:
+                    logging.warning("配置响应超时")
+                    return None
+                except websocket.WebSocketConnectionClosedException:
+                    logging.warning("WebSocket 连接关闭")
+                    return None
                 except Exception as e:
                     logging.warning(f"配置响应失败: {e}")
                     return None
 
-                seq_inner = seq + 1
+                seq_inner = -2  # 尝试匹配服务端期望的autoAssignedSequence (-2)
+                # 备用方案：禁用序列号
+                # message_type_specific_flags = 0x02  # 仅is_last_package
+                # audio_msg = bytearray(self._gen_header(message_type=self.AUDIO_ONLY_REQUEST, message_type_specific_flags=message_type_specific_flags))
                 compressed_chunk = gzip.compress(pcm_bytes)
-                audio_msg = bytearray(self._gen_header(message_type=self.AUDIO_ONLY_REQUEST, message_type_specific_flags=self.POS_SEQUENCE))
+                audio_msg = bytearray(self._gen_header(
+                    message_type=self.AUDIO_ONLY_REQUEST,
+                    message_type_specific_flags=self.POS_SEQUENCE | 0x02  # 正序列 + 最后包
+                ))
                 audio_msg.extend(self._gen_before_payload(sequence=seq_inner))
                 audio_msg.extend(len(compressed_chunk).to_bytes(4, 'big'))
                 audio_msg.extend(compressed_chunk)
-                logging.info("发送音频数据")
+                logging.info(f"发送音频数据，长度: {len(compressed_chunk)} 字节, 序列号: {seq_inner}")
                 ws.send_binary(audio_msg)
 
                 final_text = ""
                 begin = time.time()
-                timeout = 25.0 if not is_wake_word else 8.0
+                timeout = 10.0 if not is_wake_word else 5.0
                 while time.time() - begin < timeout:
                     try:
                         res = ws.recv()
                         parsed = self._parse_response(res)
+                        logging.info(f"收到响应: {parsed}")
+                        if 'code' in parsed and parsed['code'] != 0:
+                            error_msg = parsed['payload_msg'].get('error', '未知错误')
+                            logging.error(f"服务端错误: 错误码={parsed['code']}, 信息={error_msg}")
+                            if parsed['code'] == 45000000 and 'mismatch sequence' in error_msg:
+                                logging.error("序列号不匹配错误 (45000000)，请检查配置消息和音频消息的seq设置或联系七牛支持")
+                            return None
                         msg = parsed.get('payload_msg')
                         if isinstance(msg, dict):
+                            text = None
                             if 'result' in msg and 'text' in msg['result']:
                                 text = msg['result']['text']
                             elif 'data' in msg and 'result' in msg['data'] and 'text' in msg['data']['result']:
                                 text = msg['data']['result']['text']
-                            else:
-                                text = None
                             if text:
                                 final_text = text
                                 logging.info(f"中间识别文本: {text}")
@@ -258,8 +277,14 @@ class VoiceRecognitionService:
                         if parsed.get('is_last_package'):
                             logging.info("收到最后包")
                             return final_text if final_text else None
+                    except websocket.WebSocketTimeoutException:
+                        logging.warning("接收响应超时，退出循环")
+                        break
+                    except websocket.WebSocketConnectionClosedException:
+                        logging.warning("WebSocket 连接已关闭，退出循环")
+                        break
                     except Exception as e:
-                        logging.warning(f"接收响应超时: {e}")
+                        logging.warning(f"接收响应失败: {e}")
                         continue
                 logging.warning("未收到最后包，超时返回")
                 return final_text if final_text else None
@@ -274,12 +299,8 @@ class VoiceRecognitionService:
                 ws.close()
                 logging.debug("WebSocket 连接已关闭")
 
-        loop = asyncio.get_event_loop()
         try:
-            result = await loop.run_in_executor(self.executor, sync_websocket)
-            if not result and is_wake_word:
-                logging.warning("唤醒词检测未返回有效文本，尝试回退")
-                return None  # 确保回退到 Google
+            result = await asyncio.get_event_loop().run_in_executor(self.executor, sync_websocket)
             return result
         except Exception as e:
             logging.error(f"Qiniu ASR 执行失败: {e}")
