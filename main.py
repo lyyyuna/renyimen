@@ -223,6 +223,10 @@ class InputApp(QWidget):
 
     def on_wake_word_error(self, error):
         self.output_text.append(f"❌ {error}")
+        if "Qiniu API 认证失败或配额超限" in str(error):
+            self.output_text.append("⚠️ Qiniu ASR 认证失败，请检查 API 密钥或配额限制（登录 Qiniu 控制台或联系支持）")
+        else:
+            self.output_text.append("⚠️ 唤醒词检测失败，请清晰地说‘hi,任意门’")
         for thread in self.active_threads[:]:
             if thread == self.sender():
                 thread.stop()
@@ -245,7 +249,6 @@ class InputApp(QWidget):
 
     def on_voice_recognition_finished(self, text):
         self.output_text.append(f"🎤 识别到: {text}")
-        # 手动语音输入不需要唤醒词
         result = self.voice_service.parse_navigation_command(text, require_wake_word=False)
         if result['valid']:
             command_text = text
@@ -255,6 +258,9 @@ class InputApp(QWidget):
         else:
             self.output_text.append("❌ 未检测到有效的导航指令")
             self.output_text.append("💡 请使用格式: 驾车/公交/步行从A到B 或 去某地")
+            logging.warning(f"解析失败，输入文本: {text}")
+            if "导航" in text or "去" in text:
+                self.output_text.append("⚠️ 可能因响应不完整未触发导航，请重试或切换到 Google 模式")
         for thread in self.active_threads[:]:
             if thread == self.sender():
                 thread.stop()
@@ -263,6 +269,10 @@ class InputApp(QWidget):
 
     def on_voice_recognition_error(self, error):
         self.output_text.append(f"❌ {error}")
+        if "Qiniu API 认证失败或配额超限" in str(error):
+            self.output_text.append("⚠️ Qiniu ASR 认证失败，请检查 API 密钥或配额限制（登录 Qiniu 控制台或联系支持）")
+        else:
+            self.output_text.append("⚠️ 语音识别失败，请检查麦克风或网络")
         for thread in self.active_threads[:]:
             if thread == self.sender():
                 thread.stop()
