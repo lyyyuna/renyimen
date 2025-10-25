@@ -8,7 +8,7 @@ class NavigationService:
     def __init__(self, api_key: str = None, provider: str = None):
         # 读取环境变量中的API Key和地图提供方
         self.amap_api_key = api_key or os.getenv("AMAP_API_KEY", "3b16354b4a04610cf4873088846dfcb6")
-        self.baidu_api_key = os.getenv("BAIDU_MAP_AK", "")
+        self.baidu_api_key = os.getenv("BAIDU_MAP_AK", "vE2HgtbueyifzmUlFy09ev6lzktj2ifF")
         self.provider = (provider or os.getenv("MAP_PROVIDER", "amap")).lower()
     
     def navigate(self, start_point: str, end_point: str, start_city: str = None, end_city: str = None, transport_mode: str = None):
@@ -26,6 +26,7 @@ class NavigationService:
             bool: 是否成功打开链接
         """
         if self.provider == "baidu":
+
             url = build_baidu_direction_url_from_names(
                 api_key=self.baidu_api_key,
                 from_name=start_point,
@@ -34,7 +35,7 @@ class NavigationService:
                 to_city=end_city,
                 transport_mode=transport_mode,
             )
-        else:
+        elif self.provider == "amap":
             url = build_amap_direction_url_from_names(
                 api_key=self.amap_api_key,
                 from_name=start_point,
