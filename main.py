@@ -2,7 +2,7 @@ import sys
 import subprocess
 import json
 import os
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
@@ -122,6 +122,12 @@ class InputApp(QWidget):
         self.input_field.returnPressed.connect(self.on_enter_pressed)
         input_layout.addWidget(self.input_field)
 
+        # 地图类型下拉（高德/百度）
+        self.map_provider_combo = QComboBox()
+        self.map_provider_combo.addItems(["高德", "百度"])
+        self.map_provider_combo.setFixedWidth(90)
+        input_layout.addWidget(self.map_provider_combo)
+
         self.voice_button = QPushButton("🎤 语音")
         self.voice_button.setFixedWidth(80)
         self.voice_button.clicked.connect(self.on_voice_input)
@@ -223,6 +229,13 @@ class InputApp(QWidget):
         self.output_text.append("🤖 正在分析导航请求...")
 
         # 启动后台线程
+        # 将选择的地图类型设置到环境变量，供 MCP 服务读取
+        provider = "amap" if self.map_provider_combo.currentText() == "高德" else "baidu"
+        os.environ["MAP_PROVIDER"] = provider
+
+        # 同步到本地导航服务备用解析
+        self.nav_service.provider = provider
+
         self.worker = NavigationWorker(text)
         self.worker.finished.connect(self.on_navigation_finished)
         self.worker.error.connect(self.on_navigation_error)
