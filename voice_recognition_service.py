@@ -6,8 +6,9 @@ import gzip
 import json
 import time
 import uuid
-import websockets
+import websocket
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 # 配置日志级别
 logging.basicConfig(level=logging.DEBUG)
@@ -15,17 +16,16 @@ logging.basicConfig(level=logging.DEBUG)
 class VoiceRecognitionService:
     def __init__(self):
         self.recognizer = sr.Recognizer()
-        self.recognizer.energy_threshold = 4000  # 提高麦克风灵敏度
-        self.recognizer.pause_threshold = 1.0   # 暂停检测时间
+        self.recognizer.energy_threshold = 4000
+        self.recognizer.pause_threshold = 1.0
         self.wake_word = "任意门"
         self.qiniu_base_ws = os.environ.get("QINIU_OPENAI_BASE_WS", "wss://openai.qiniu.com/v1")
         self.qiniu_api_key = os.environ.get("QINIU_OPENAI_API_KEY")
-        # 临时禁用 Qiniu ASR 用于测试
-        self.qiniu_api_key = None
         self.sample_rate = int(os.environ.get("QINIU_ASR_SAMPLE_RATE", "16000"))
         self.channels = int(os.environ.get("QINIU_ASR_CHANNELS", "1"))
         self.bits = int(os.environ.get("QINIU_ASR_BITS", "16"))
         self.seg_duration_ms = int(os.environ.get("QINIU_ASR_SEG_DURATION_MS", "300"))
+        self.executor = ThreadPoolExecutor(max_workers=1)
 
     async def listen_and_recognize(self, timeout=5, phrase_time_limit=10):
         try:
@@ -61,7 +61,7 @@ class VoiceRecognitionService:
             logging.error(f"语音识别出错: {e}")
             return None
 
-    async def listen_for_wake_word(self, timeout=5, phrase_time_limit=3):
+    async def listen_for_wake_word(self, timeout=5, phrase_time_limit=5):
         try:
             with sr.Microphone() as source:
                 self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
@@ -74,14 +74,14 @@ class VoiceRecognitionService:
 
                 if self.qiniu_api_key:
                     logging.info("发送到 Qiniu ASR 检测唤醒词...")
-                    text = await self._qiniu_asr_stream_once(pcm_data)
-                    if text and self.wake_word in text.lower():
+                    text = await self._qiniu_asr_stream_once(pcm_data, is_wake_word=True)
+                    if text and ("任意门" in text.lower() or "任意" in text.lower() or "hi" in text.lower()):
                         logging.info(f"检测到唤醒词: {text}")
                         return True
                 else:
                     logging.info("使用 Google Speech Recognition 检测唤醒词...")
                     text = self.recognizer.recognize_google(audio, language='zh-CN')
-                    if text and self.wake_word in text.lower():
+                    if text and ("任意门" in text.lower() or "任意" in text.lower() or "hi" in text.lower()):
                         logging.info(f"检测到唤醒词: {text}")
                         return True
             return False
@@ -163,6 +163,7 @@ class VoiceRecognitionService:
             payload_msg = payload[8:8 + payload_size]
         else:
             payload_msg = payload
+            logging.warning(f"未知消息类型: {message_type}")
         if comp == self.GZIP_COMPRESSION:
             try:
                 payload_msg = gzip.decompress(payload_msg)
@@ -181,12 +182,12 @@ class VoiceRecognitionService:
         result['payload_msg'] = payload_msg
         return result
 
-    async def _qiniu_asr_stream_once(self, pcm_bytes: bytes) -> str | None:
+    async def _qiniu_asr_stream_once(self, pcm_bytes: bytes, is_wake_word=False) -> str | None:
         if not self.qiniu_api_key:
             logging.warning("缺少 Qiniu API Key")
             return None
         ws_url = f"{self.qiniu_base_ws}/voice/asr"
-        headers = {"Authorization": "Bearer " + self.qiniu_api_key}
+        headers = ["Authorization: Bearer " + self.qiniu_api_key]
         uid = str(uuid.uuid4())
         logging.info(f"生成 UID: {uid}")
         req = {
@@ -207,34 +208,39 @@ class VoiceRecognitionService:
         init_msg.extend(len(payload_bytes).to_bytes(4, 'big'))
         init_msg.extend(payload_bytes)
         logging.info("发送配置消息")
-        try:
-            async with websockets.connect(ws_url, extra_headers=headers, max_size=1000000000) as ws:
-                await ws.send(init_msg)
+
+        def sync_websocket():
+            ws = websocket.WebSocket()
+            try:
+                ws.connect(ws_url, header=headers)
+                logging.info("WebSocket 连接成功")
+                ws.send_binary(init_msg)
                 try:
-                    res = await asyncio.wait_for(ws.recv(), timeout=10.0)
+                    res = ws.recv()
                     parsed = self._parse_response(res)
                     logging.info(f"配置响应: {parsed}")
                     if 'code' in parsed and parsed['code'] != 0:
                         logging.error(f"配置错误码: {parsed['code']}")
                         return None
-                except asyncio.TimeoutError:
-                    logging.warning("配置响应超时")
+                except Exception as e:
+                    logging.warning(f"配置响应失败: {e}")
                     return None
 
-                seq += 1
+                seq_inner = seq + 1
                 compressed_chunk = gzip.compress(pcm_bytes)
                 audio_msg = bytearray(self._gen_header(message_type=self.AUDIO_ONLY_REQUEST, message_type_specific_flags=self.POS_SEQUENCE))
-                audio_msg.extend(self._gen_before_payload(sequence=seq))
+                audio_msg.extend(self._gen_before_payload(sequence=seq_inner))
                 audio_msg.extend(len(compressed_chunk).to_bytes(4, 'big'))
                 audio_msg.extend(compressed_chunk)
                 logging.info("发送音频数据")
-                await ws.send(audio_msg)
+                ws.send_binary(audio_msg)
 
                 final_text = ""
                 begin = time.time()
-                while time.time() - begin < 10.0:
+                timeout = 25.0 if not is_wake_word else 8.0
+                while time.time() - begin < timeout:
                     try:
-                        res = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                        res = ws.recv()
                         parsed = self._parse_response(res)
                         msg = parsed.get('payload_msg')
                         if isinstance(msg, dict):
@@ -247,14 +253,36 @@ class VoiceRecognitionService:
                             if text:
                                 final_text = text
                                 logging.info(f"中间识别文本: {text}")
+                                if is_wake_word and ("任意门" in text.lower() or "任意" in text.lower() or "hi" in text.lower()):
+                                    return final_text
                         if parsed.get('is_last_package'):
                             logging.info("收到最后包")
-                            break
-                    except asyncio.TimeoutError:
+                            return final_text if final_text else None
+                    except Exception as e:
+                        logging.warning(f"接收响应超时: {e}")
                         continue
+                logging.warning("未收到最后包，超时返回")
                 return final_text if final_text else None
+            except websocket.WebSocketException as e:
+                if "403 Forbidden" in str(e):
+                    logging.error(f"Qiniu ASR 认证失败: {e}. 请检查 API Key 或配额限制")
+                    raise Exception("Qiniu API 认证失败或配额超限，请检查密钥或联系 Qiniu 支持")
+                else:
+                    logging.error(f"WebSocket 连接或发送失败: {e}")
+                    return None
+            finally:
+                ws.close()
+                logging.debug("WebSocket 连接已关闭")
+
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(self.executor, sync_websocket)
+            if not result and is_wake_word:
+                logging.warning("唤醒词检测未返回有效文本，尝试回退")
+                return None  # 确保回退到 Google
+            return result
         except Exception as e:
-            logging.error(f"WebSocket 连接或发送失败: {e}")
+            logging.error(f"Qiniu ASR 执行失败: {e}")
             return None
 
     def parse_navigation_command(self, text, require_wake_word=True):
@@ -265,7 +293,6 @@ class VoiceRecognitionService:
         text = text.replace(" ", "").replace(",", "").lower()
         logging.debug(f"处理后的输入文本: {text}")
 
-        # 对于手动语音输入，放宽唤醒词要求
         if require_wake_word:
             if self.wake_word not in text and "hi" not in text:
                 if "任意" in text or "门" in text:
@@ -303,7 +330,7 @@ class VoiceRecognitionService:
             logging.debug(f"解析导航: 从 {result['start_point']} 到 {result['end_point']}, 方式: {result['transport_mode']}")
             return result
 
-        go_to_pattern = r'去(.+)'
+        go_to_pattern = r'(?:导航)?去(.+)'
         match = re.search(go_to_pattern, text)
         if match:
             result['end_point'] = match.group(1).strip()
