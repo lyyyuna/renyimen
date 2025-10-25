@@ -43,7 +43,7 @@ class VoiceRecognitionService:
             print(f"语音识别出错: {e}")
             return None
 
-    def start_background_listening(self, callback, phrase_time_limit=10):
+    def start_background_listening(self, callback, phrase_time_limit=10, error_callback=None):
         """
         Start background listening and invoke callback(text) on recognition.
         Stores a stop function that can be called to end listening.
@@ -51,10 +51,13 @@ class VoiceRecognitionService:
         if self._bg_stop is not None:
             return False
         self._callback = callback
+        self._error_callback = error_callback
         try:
             self._source = sr.Microphone()
             with self._source as src:
-                self.recognizer.adjust_for_ambient_noise(src, duration=0.5)
+                # Improve stability by adapting to ambient noise
+                self.recognizer.dynamic_energy_threshold = True
+                self.recognizer.adjust_for_ambient_noise(src, duration=0.6)
 
             def _internal_callback(recognizer, audio):
                 if self._paused:
@@ -64,11 +67,26 @@ class VoiceRecognitionService:
                     if self._callback:
                         self._callback(text)
                 except sr.UnknownValueError:
-                    pass
+                    # No speech or could not understand
+                    if self._error_callback:
+                        try:
+                            self._error_callback("未识别到语音或语音不清晰")
+                        except Exception:
+                            pass
                 except sr.RequestError as e:
-                    print(f"语音识别服务请求失败: {e}")
+                    # Recognition service error
+                    if self._error_callback:
+                        try:
+                            self._error_callback(f"语音识别服务请求失败: {e}")
+                        except Exception:
+                            pass
                 except Exception as e:
-                    print(f"语音识别出错: {e}")
+                    # Other runtime errors
+                    if self._error_callback:
+                        try:
+                            self._error_callback(f"语音识别出错: {e}")
+                        except Exception:
+                            pass
 
             self._bg_stop = self.recognizer.listen_in_background(self._source, _internal_callback, phrase_time_limit=phrase_time_limit)
             self._paused = False
@@ -103,6 +121,7 @@ class VoiceRecognitionService:
         self._bg_stop = None
         self._paused = False
         self._callback = None
+        self._error_callback = None
         if self._source:
             try:
                 self._source.__exit__(None, None, None)

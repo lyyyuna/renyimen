@@ -179,7 +179,7 @@ class InputApp(QWidget):
             self.output_text.append("🎤 后台监听已启动，请说话...")
             self.input_field.setEnabled(False)
             self.submit_button.setEnabled(False)
-            started = self.voice_service.start_background_listening(self._on_bg_text, phrase_time_limit=10)
+            started = self.voice_service.start_background_listening(self._on_bg_text, phrase_time_limit=10, error_callback=self._on_bg_error)
             if started:
                 self.voice_listening = True
                 self.voice_button.setText("■ 停止")
@@ -225,6 +225,15 @@ class InputApp(QWidget):
     def _handle_bg_text(self, text: str):
         # Mirror single-run behavior
         self.on_voice_recognition_finished(text)
+
+    def _on_bg_error(self, message: str):
+        """后台监听错误/未识别反馈：切回UI线程更新提示"""
+        QTimer.singleShot(0, lambda: self._handle_bg_error(message))
+
+    def _handle_bg_error(self, message: str):
+        # 当后台未识别或服务错误时给予用户反馈，不打断监听
+        if self.voice_listening:
+            self.output_text.append(f"⚠️ {message}")
 
     def on_voice_pause_toggle(self):
         """暂停/继续后台语音识别"""
