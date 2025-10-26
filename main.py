@@ -4,10 +4,11 @@ import subprocess
 import json
 import os
 import asyncio
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox, QMessageBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
+from gps_service import GPSService
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG)
@@ -69,19 +70,21 @@ class NavigationWorker(QThread):
 
 请分析这段文字是否包含导航需求。如果包含导航需求，请使用已注册的MCP导航工具来处理：
 
-1. 识别起点和终点信息，如果不指定起点，则起点参数为空
+1. 识别起点和终点信息
+   - 如果不指定起点，则起点参数为空字符串 ""
+   - 空起点会自动使用设备GPS位置（如果可用）或IP定位
 2. 识别交通方式（如果用户在输入中指定了交通方式）
 3. 调用navigate工具，参数格式：
-   - start_point: 起点名称
+   - start_point: 起点名称（如果没有起点，传空字符串 ""）
    - end_point: 终点名称
    - start_city: 起点城市（可选）
    - end_city: 终点城市（可选）
    - transport_mode: 交通方式（如果用户指定了交通方式）
    
 支持的导航格式：
-- "从A到B"
-- "去某地"
-- "导航到某地"
+- "从A到B" - 明确起点和终点
+- "去某地" - 只有终点，起点使用当前GPS位置
+- "导航到某地" - 只有终点，起点使用当前GPS位置
 - "驾车从A到B"
 - "打车去某地"
 - "骑车从A到B"
@@ -128,9 +131,12 @@ class InputApp(QWidget):
         super().__init__()
         self.nav_service = NavigationService()
         self.voice_service = VoiceRecognitionService()
+        self.gps_service = GPSService()
         self.is_listening_wake_word = False
         self.active_threads = []
+        self.gps_available = False
         self.init_ui()
+        self.check_gps_on_startup()
 
     def init_ui(self):
         self.setWindowTitle("任意门智能导航")
@@ -167,6 +173,10 @@ class InputApp(QWidget):
         self.voice_hint_label = QLabel("提示: 清晰地说\"hi,任意门,我想驾车/公交/步行从A到B\"")
         self.voice_hint_label.setStyleSheet("color: gray; font-size: 10px;")
         layout.addWidget(self.voice_hint_label)
+
+        self.gps_status_label = QLabel("GPS状态: 检查中...")
+        self.gps_status_label.setStyleSheet("color: gray; font-size: 10px;")
+        layout.addWidget(self.gps_status_label)
 
         self.submit_button = QPushButton("确定")
         self.submit_button.clicked.connect(self.on_submit)
@@ -356,6 +366,31 @@ class InputApp(QWidget):
         self.wake_word_button.setEnabled(True)
         if self.is_listening_wake_word:
             self.start_wake_word_listening()
+
+    def check_gps_on_startup(self):
+        """启动时检查GPS状态"""
+        try:
+            self.gps_available = self.gps_service.check_gps_available()
+            if self.gps_available:
+                self.gps_status_label.setText("GPS状态: ✅ 可用")
+                self.gps_status_label.setStyleSheet("color: green; font-size: 10px;")
+            else:
+                self.gps_status_label.setText("GPS状态: ⚠️ 不可用 (将使用IP定位)")
+                self.gps_status_label.setStyleSheet("color: orange; font-size: 10px;")
+        except Exception as e:
+            logging.error(f"检查GPS状态失败: {e}")
+            self.gps_status_label.setText("GPS状态: ❌ 检查失败")
+            self.gps_status_label.setStyleSheet("color: red; font-size: 10px;")
+    
+    def show_gps_prompt(self):
+        """显示GPS提示对话框"""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("GPS不可用")
+        msg.setText("设备GPS功能未启用或不可用")
+        msg.setInformativeText("为了获得更准确的导航起点，请在设备设置中启用GPS定位功能。\n\n当前将使用IP定位作为备选方案。")
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
 
     def fallback_navigation_parse(self, text):
         text_lower = text.lower()

@@ -79,11 +79,36 @@ class BaiduLocationService:
             logger.error("地理编码请求失败：%s", str(e))
             return None
 
-    def get_current_location(self) -> Optional[Dict]:
+    def get_current_location(self, prefer_gps: bool = True) -> Optional[Dict]:
         """
-        通过IP定位获取当前坐标（需要AK）。
-        返回统一结构的地点信息字典。
+        获取当前位置（优先GPS定位，失败则使用IP定位）
+        
+        Args:
+            prefer_gps: 是否优先使用GPS定位，默认True
+        
+        Returns:
+            统一结构的地点信息字典
         """
+        # 优先尝试GPS定位
+        if prefer_gps:
+            try:
+                from gps_service import GPSService
+                gps = GPSService()
+                
+                if gps.check_gps_available():
+                    logger.info("GPS可用，尝试获取GPS位置")
+                    gps_location = gps.get_location_info()
+                    if gps_location:
+                        logger.info("成功获取GPS位置")
+                        return gps_location
+                    else:
+                        logger.warning("GPS定位失败，回退到IP定位")
+                else:
+                    logger.warning("GPS不可用，使用IP定位")
+            except Exception as e:
+                logger.warning(f"GPS定位异常: {e}，回退到IP定位")
+        
+        # 使用IP定位作为备选方案
         if not self.api_key:
             logger.warning("未提供API密钥，无法获取当前位置")
             return None
@@ -105,9 +130,10 @@ class BaiduLocationService:
                 city = data["content"].get("address_detail", {}).get("city", "")
                 lng = point.get("x", "")
                 lat = point.get("y", "")
+                logger.info("IP定位成功")
                 return {
                     "id": "",
-                    "name": "当前位置",
+                    "name": "当前位置(IP)",
                     "lnglat": f"{lng},{lat}",
                     "modxy": f"{lng},{lat}",
                     "poitype": "",
