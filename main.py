@@ -112,7 +112,7 @@ class NavigationWorker(QThread):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=60,
                 env=env
             )
 
@@ -394,6 +394,20 @@ class InputApp(QWidget):
 
     def fallback_navigation_parse(self, text):
         text_lower = text.lower()
+        
+        # 识别交通方式
+        transport_mode = None
+        if "步行" in text or "走路" in text:
+            transport_mode = "walking"
+        elif "驾车" in text or "开车" in text:
+            transport_mode = "driving"
+        elif "公交" in text or "公共交通" in text or "地铁" in text:
+            transport_mode = "public_transit"
+        elif "骑车" in text or "骑行" in text:
+            transport_mode = "bicycling"
+        elif "打车" in text:
+            transport_mode = "driving"
+        
         if "从" in text and "到" in text:
             parts = text.split("从")
             if len(parts) > 1:
@@ -403,21 +417,30 @@ class InputApp(QWidget):
                     if len(from_to) >= 2:
                         start = from_to[0].strip()
                         end = from_to[1].strip()
-                        success = self.nav_service.navigate(start, end)
+                        # 移除交通方式关键词
+                        for keyword in ["步行", "走路", "驾车", "开车", "公交", "公共交通", "地铁", "骑车", "骑行", "打车"]:
+                            start = start.replace(keyword, "").strip()
+                            end = end.replace(keyword, "").strip()
+                        success = self.nav_service.navigate(start, end, transport_mode=transport_mode)
+                        mode_text = f"({transport_mode})" if transport_mode else ""
                         if success:
-                            self.output_text.append(f"🗺️ 备用解析成功: {start} → {end}")
+                            self.output_text.append(f"🗺️ 备用解析成功: {start} → {end} {mode_text}")
                         else:
-                            self.output_text.append(f"❌ 导航失败: {start} → {end}")
+                            self.output_text.append(f"❌ 导航失败: {start} → {end} {mode_text}")
                         return
         elif "去" in text:
             parts = text.split("去")
             if len(parts) > 1:
                 destination = parts[1].strip()
-                success = self.nav_service.navigate("当前位置", destination)
+                # 移除交通方式关键词
+                for keyword in ["步行", "走路", "驾车", "开车", "公交", "公共交通", "地铁", "骑车", "骑行", "打车"]:
+                    destination = destination.replace(keyword, "").strip()
+                success = self.nav_service.navigate("当前位置", destination, transport_mode=transport_mode)
+                mode_text = f"({transport_mode})" if transport_mode else ""
                 if success:
-                    self.output_text.append(f"🗺️ 备用解析成功: 当前位置 → {destination}")
+                    self.output_text.append(f"🗺️ 备用解析成功: 当前位置 → {destination} {mode_text}")
                 else:
-                    self.output_text.append(f"❌ 导航失败: 当前位置 → {destination}")
+                    self.output_text.append(f"❌ 导航失败: 当前位置 → {destination} {mode_text}")
                 return
         self.output_text.append("❓ 无法识别导航请求，请使用'从A到B'或'去某地'的格式")
 
