@@ -6,6 +6,7 @@ import os
 import asyncio
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
+from PySide6.QtGui import QIcon
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
 
@@ -135,6 +136,11 @@ class InputApp(QWidget):
     def init_ui(self):
         self.setWindowTitle("任意门智能导航")
         self.setFixedSize(550, 450)
+        
+        # Set window icon
+        icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         layout = QVBoxLayout()
 
@@ -396,6 +402,11 @@ class InputApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+    
     window = InputApp()
     window.show()
     sys.exit(app.exec())
