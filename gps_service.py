@@ -37,7 +37,7 @@ class GPSService:
                 return False
             
             # 检查是否有可用的定位方法
-            available = source.error() == QGeoPositionInfoSource.PositioningError.NoError
+            available = source.error() == QGeoPositionInfoSource.Error.NoError
             logger.info(f"GPS可用性检查结果: {available}")
             return available
             
