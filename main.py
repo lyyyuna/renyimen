@@ -402,6 +402,11 @@ class InputApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+    
     window = InputApp()
     window.show()
     sys.exit(app.exec())
