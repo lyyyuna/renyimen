@@ -3,5 +3,5 @@
   <path d="M256 96 L276 236 L256 416 L236 236 Z" fill="#E74C3C" stroke="#C0392B" stroke-width="4"/>
   <circle cx="256" cy="256" r="24" fill="#2C3E50"/>
   <path d="M256 96 L276 120 L256 144 L236 120 Z" fill="#FFFFFF" stroke="#2C3E50" stroke-width="2"/>
-  <text x="256" y="480" font-family="Arial" font-size="48" fill="#FFFFFF" text-anchor="middle" font-weight="bold">N</text>
+  <text x="256" y="480" font-family="sans-serif" font-size="48" fill="#FFFFFF" text-anchor="middle" font-weight="bold">N</text>
 </svg>
