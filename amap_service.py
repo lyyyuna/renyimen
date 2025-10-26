@@ -2,6 +2,9 @@ import requests
 from typing import Dict, Optional
 from urllib.parse import urlencode, quote
 from enum import Enum
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TransportMode(Enum):
@@ -54,13 +57,36 @@ class AmapLocationService:
             print(f"请求错误: {e}")
             return None
     
-    def get_current_location(self) -> Optional[Dict]:
+    def get_current_location(self, prefer_gps: bool = True) -> Optional[Dict]:
         """
-        获取当前位置（IP定位）
+        获取当前位置（优先GPS定位，失败则使用IP定位）
+        
+        Args:
+            prefer_gps: 是否优先使用GPS定位，默认True
         
         Returns:
             包含当前位置信息的字典
         """
+        # 优先尝试GPS定位
+        if prefer_gps:
+            try:
+                from gps_service import GPSService
+                gps = GPSService()
+                
+                if gps.check_gps_available():
+                    logger.info("GPS可用，尝试获取GPS位置")
+                    gps_location = gps.get_location_info()
+                    if gps_location:
+                        logger.info("成功获取GPS位置")
+                        return gps_location
+                    else:
+                        logger.warning("GPS定位失败，回退到IP定位")
+                else:
+                    logger.warning("GPS不可用，使用IP定位")
+            except Exception as e:
+                logger.warning(f"GPS定位异常: {e}，回退到IP定位")
+        
+        # 使用IP定位作为备选方案
         url = f"{self.base_url}/ip"
         
         params = {
@@ -77,7 +103,7 @@ class AmapLocationService:
                 # 构造标准格式的位置信息
                 location_info = {
                     'id': '',
-                    'name': '当前位置',
+                    'name': '当前位置(IP)',
                     'lnglat': data.get('rectangle', '').split(';')[0] if data.get('rectangle') else '',
                     'modxy': data.get('rectangle', '').split(';')[0] if data.get('rectangle') else '',
                     'poitype': '',
@@ -87,6 +113,7 @@ class AmapLocationService:
                     'cityname': data.get('city', ''),
                     'district': data.get('province', '')
                 }
+                logger.info("IP定位成功")
                 return location_info
             else:
                 print(f"IP定位失败: {data.get('info', '未知错误')}")

@@ -4,11 +4,12 @@ import subprocess
 import json
 import os
 import asyncio
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox, QMessageBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QIcon
 from navigation_service import NavigationService
 from voice_recognition_service import VoiceRecognitionService
+from gps_service import GPSService
 
 # 配置日志
 logging.basicConfig(level=logging.DEBUG)
@@ -70,19 +71,21 @@ class NavigationWorker(QThread):
 
 请分析这段文字是否包含导航需求。如果包含导航需求，请使用已注册的MCP导航工具来处理：
 
-1. 识别起点和终点信息，如果不指定起点，则起点参数为空
+1. 识别起点和终点信息
+   - 如果不指定起点，则起点参数为空字符串 ""
+   - 空起点会自动使用设备GPS位置（如果可用）或IP定位
 2. 识别交通方式（如果用户在输入中指定了交通方式）
 3. 调用navigate工具，参数格式：
-   - start_point: 起点名称
+   - start_point: 起点名称（如果没有起点，传空字符串 ""）
    - end_point: 终点名称
    - start_city: 起点城市（可选）
    - end_city: 终点城市（可选）
    - transport_mode: 交通方式（如果用户指定了交通方式）
    
 支持的导航格式：
-- "从A到B"
-- "去某地"
-- "导航到某地"
+- "从A到B" - 明确起点和终点
+- "去某地" - 只有终点，起点使用当前GPS位置
+- "导航到某地" - 只有终点，起点使用当前GPS位置
 - "驾车从A到B"
 - "打车去某地"
 - "骑车从A到B"
@@ -110,7 +113,7 @@ class NavigationWorker(QThread):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=60,
                 env=env
             )
 
@@ -129,9 +132,12 @@ class InputApp(QWidget):
         super().__init__()
         self.nav_service = NavigationService()
         self.voice_service = VoiceRecognitionService()
+        self.gps_service = GPSService()
         self.is_listening_wake_word = False
         self.active_threads = []
+        self.gps_available = False
         self.init_ui()
+        self.check_gps_on_startup()
 
     def init_ui(self):
         self.setWindowTitle("任意门智能导航")
@@ -173,6 +179,10 @@ class InputApp(QWidget):
         self.voice_hint_label = QLabel("提示: 清晰地说\"hi,任意门,我想驾车/公交/步行从A到B\"")
         self.voice_hint_label.setStyleSheet("color: gray; font-size: 10px;")
         layout.addWidget(self.voice_hint_label)
+
+        self.gps_status_label = QLabel("GPS状态: 检查中...")
+        self.gps_status_label.setStyleSheet("color: gray; font-size: 10px;")
+        layout.addWidget(self.gps_status_label)
 
         self.submit_button = QPushButton("确定")
         self.submit_button.clicked.connect(self.on_submit)
@@ -363,8 +373,47 @@ class InputApp(QWidget):
         if self.is_listening_wake_word:
             self.start_wake_word_listening()
 
+    def check_gps_on_startup(self):
+        """启动时检查GPS状态"""
+        try:
+            self.gps_available = self.gps_service.check_gps_available()
+            if self.gps_available:
+                self.gps_status_label.setText("GPS状态: ✅ 可用")
+                self.gps_status_label.setStyleSheet("color: green; font-size: 10px;")
+            else:
+                self.gps_status_label.setText("GPS状态: ⚠️ 不可用 (将使用IP定位)")
+                self.gps_status_label.setStyleSheet("color: orange; font-size: 10px;")
+        except Exception as e:
+            logging.error(f"检查GPS状态失败: {e}")
+            self.gps_status_label.setText("GPS状态: ❌ 检查失败")
+            self.gps_status_label.setStyleSheet("color: red; font-size: 10px;")
+    
+    def show_gps_prompt(self):
+        """显示GPS提示对话框"""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("GPS不可用")
+        msg.setText("设备GPS功能未启用或不可用")
+        msg.setInformativeText("为了获得更准确的导航起点，请在设备设置中启用GPS定位功能。\n\n当前将使用IP定位作为备选方案。")
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
     def fallback_navigation_parse(self, text):
         text_lower = text.lower()
+        
+        # 识别交通方式
+        transport_mode = None
+        if "步行" in text or "走路" in text:
+            transport_mode = "walking"
+        elif "驾车" in text or "开车" in text:
+            transport_mode = "driving"
+        elif "公交" in text or "公共交通" in text or "地铁" in text:
+            transport_mode = "public_transit"
+        elif "骑车" in text or "骑行" in text:
+            transport_mode = "bicycling"
+        elif "打车" in text:
+            transport_mode = "driving"
+        
         if "从" in text and "到" in text:
             parts = text.split("从")
             if len(parts) > 1:
@@ -374,21 +423,30 @@ class InputApp(QWidget):
                     if len(from_to) >= 2:
                         start = from_to[0].strip()
                         end = from_to[1].strip()
-                        success = self.nav_service.navigate(start, end)
+                        # 移除交通方式关键词
+                        for keyword in ["步行", "走路", "驾车", "开车", "公交", "公共交通", "地铁", "骑车", "骑行", "打车"]:
+                            start = start.replace(keyword, "").strip()
+                            end = end.replace(keyword, "").strip()
+                        success = self.nav_service.navigate(start, end, transport_mode=transport_mode)
+                        mode_text = f"({transport_mode})" if transport_mode else ""
                         if success:
-                            self.output_text.append(f"🗺️ 备用解析成功: {start} → {end}")
+                            self.output_text.append(f"🗺️ 备用解析成功: {start} → {end} {mode_text}")
                         else:
-                            self.output_text.append(f"❌ 导航失败: {start} → {end}")
+                            self.output_text.append(f"❌ 导航失败: {start} → {end} {mode_text}")
                         return
         elif "去" in text:
             parts = text.split("去")
             if len(parts) > 1:
                 destination = parts[1].strip()
-                success = self.nav_service.navigate("当前位置", destination)
+                # 移除交通方式关键词
+                for keyword in ["步行", "走路", "驾车", "开车", "公交", "公共交通", "地铁", "骑车", "骑行", "打车"]:
+                    destination = destination.replace(keyword, "").strip()
+                success = self.nav_service.navigate("当前位置", destination, transport_mode=transport_mode)
+                mode_text = f"({transport_mode})" if transport_mode else ""
                 if success:
-                    self.output_text.append(f"🗺️ 备用解析成功: 当前位置 → {destination}")
+                    self.output_text.append(f"🗺️ 备用解析成功: 当前位置 → {destination} {mode_text}")
                 else:
-                    self.output_text.append(f"❌ 导航失败: 当前位置 → {destination}")
+                    self.output_text.append(f"❌ 导航失败: 当前位置 → {destination} {mode_text}")
                 return
         self.output_text.append("❓ 无法识别导航请求，请使用'从A到B'或'去某地'的格式")
 
