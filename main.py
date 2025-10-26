@@ -81,7 +81,7 @@ class NavigationWorker(QThread):
    - start_city: 起点城市（可选）
    - end_city: 终点城市（可选）
    - transport_mode: 交通方式（如果用户指定了交通方式）
-   
+
 支持的导航格式：
 - "从A到B" - 明确起点和终点
 - "去某地" - 只有终点，起点使用当前GPS位置
@@ -113,7 +113,7 @@ class NavigationWorker(QThread):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=30,
                 env=env
             )
 
@@ -142,7 +142,7 @@ class InputApp(QWidget):
     def init_ui(self):
         self.setWindowTitle("任意门智能导航")
         self.setFixedSize(550, 450)
-        
+
         # Set window icon
         icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
         if os.path.exists(icon_path):
@@ -176,7 +176,7 @@ class InputApp(QWidget):
 
         layout.addLayout(input_layout)
 
-        self.voice_hint_label = QLabel("提示: 清晰地说\"hi,任意门,我想驾车/公交/步行从A到B\"")
+        self.voice_hint_label = QLabel("提示: 清晰地说\"任意门,我想驾车/公交/步行从A到B或我想到B\"")
         self.voice_hint_label.setStyleSheet("color: gray; font-size: 10px;")
         layout.addWidget(self.voice_hint_label)
 
@@ -242,7 +242,7 @@ class InputApp(QWidget):
         if "Qiniu API 认证失败或配额超限" in str(error):
             self.output_text.append("⚠️ Qiniu ASR 认证失败，请检查 API 密钥或配额限制（登录 Qiniu 控制台或联系支持）")
         else:
-            self.output_text.append("⚠️ 唤醒词检测失败，请清晰地说‘hi,任意门’")
+            self.output_text.append("⚠️ 唤醒词检测失败，请清晰地说‘任意门’")
         for thread in self.active_threads[:]:
             if thread == self.sender():
                 thread.stop()
@@ -387,7 +387,7 @@ class InputApp(QWidget):
             logging.error(f"检查GPS状态失败: {e}")
             self.gps_status_label.setText("GPS状态: ❌ 检查失败")
             self.gps_status_label.setStyleSheet("color: red; font-size: 10px;")
-    
+
     def show_gps_prompt(self):
         """显示GPS提示对话框"""
         msg = QMessageBox(self)
@@ -400,7 +400,7 @@ class InputApp(QWidget):
 
     def fallback_navigation_parse(self, text):
         text_lower = text.lower()
-        
+
         # 识别交通方式
         transport_mode = None
         if "步行" in text or "走路" in text:
@@ -413,7 +413,7 @@ class InputApp(QWidget):
             transport_mode = "bicycling"
         elif "打车" in text:
             transport_mode = "driving"
-        
+
         if "从" in text and "到" in text:
             parts = text.split("从")
             if len(parts) > 1:
@@ -460,11 +460,11 @@ class InputApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
+
     icon_path = os.path.join(os.path.dirname(__file__), "icon.png")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    
+
     window = InputApp()
     window.show()
     sys.exit(app.exec())
