@@ -214,6 +214,9 @@ A: 请检查 API Key 是否正确，以及是否有调用配额。
 **其他故障排查**：
 A: 应用使用异步处理，如果卡死请检查 Claude CLI 是否正常安装。
 
+## Demo
+见 demo.mp4
+
 ## 许可证
 
 MIT License
