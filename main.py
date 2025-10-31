@@ -113,7 +113,7 @@ class NavigationWorker(QThread):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=120,
                 env=env
             )
 
