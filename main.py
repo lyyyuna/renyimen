@@ -1,8 +1,16 @@
 import sys
+import os
+
+# macOS 特定配置 - 必须在所有导入之前设置
+if sys.platform == "darwin":
+    os.environ["QT_MAC_WANTS_LAYER"] = "1"
+    os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+    os.environ["QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM"] = "1"
+    os.environ["QT_LOGGING_RULES"] = "qt.qpa.input.methods=false"
+
 import logging
 import subprocess
 import json
-import os
 import asyncio
 from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel, QPushButton, QTextEdit, QProgressBar, QComboBox, QMessageBox
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
@@ -14,8 +22,11 @@ from gps_service import GPSService
 # 配置日志
 logging.basicConfig(level=logging.DEBUG)
 
-# macOS 事件循环优化
-os.environ["QT_MAC_WANTS_LAYER"] = "1"
+# 修复 macOS 上的事件循环问题
+if sys.platform == "darwin":
+    import selectors
+    selector = selectors.SelectSelector()
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 class VoiceRecognitionWorker(QThread):
     finished = Signal(str)
@@ -28,9 +39,17 @@ class VoiceRecognitionWorker(QThread):
         self.loop = None
 
     def run(self):
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
         try:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+            
+            # macOS 特定优化
+            if sys.platform == "darwin":
+                import selectors
+                selector = selectors.SelectSelector()
+                self.loop = asyncio.SelectorEventLoop(selector)
+                asyncio.set_event_loop(self.loop)
+            
             if self.is_wake_word:
                 result = self.loop.run_until_complete(self.voice_service.listen_for_wake_word(timeout=5, phrase_time_limit=3))
                 if result:
@@ -46,7 +65,8 @@ class VoiceRecognitionWorker(QThread):
         except Exception as e:
             self.error.emit(f"语音识别出错: {str(e)}")
         finally:
-            self.loop.close()
+            if self.loop:
+                self.loop.close()
             self.loop = None
 
     def stop(self):
